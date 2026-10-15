@@ -39,25 +39,30 @@
     </section>
 
     <section class="card" id="files-card">
-      <h2 data-i18n="files.title">Select a Parquet file</h2>
-      <div class="tabs" role="tablist">
-        <button id="tab-upload" class="tab active" type="button" data-i18n="files.tab_upload">Upload</button>
-        <button id="tab-local" class="tab" type="button" data-i18n="files.tab_local">Local path</button>
+      <div class="file-section-heading">
+        <h2 id="files-title" data-i18n="files.title">Select a Parquet file</h2>
+        <div class="tabs" role="group" aria-labelledby="files-title">
+          <button id="tab-upload" class="tab active" type="button" aria-pressed="true" aria-controls="upload-panel" data-i18n="files.tab_upload">Upload</button>
+          <button id="tab-local" class="tab" type="button" aria-pressed="false" aria-controls="local-panel" data-i18n="files.tab_local">Local path</button>
+        </div>
       </div>
       <div id="upload-panel" class="panel">
         <form id="upload-form">
           <div id="upload-dropzone" class="upload-dropzone">
             <input id="upload-file" class="visually-hidden-file" name="file" type="file" accept=".parquet" required aria-describedby="upload-file-hint upload-file-status">
             <div class="upload-dropzone-content">
-              <span class="upload-dropzone-icon" aria-hidden="true">⇧</span>
-              <p id="upload-file-hint" class="upload-file-hint" data-i18n="files.drop_hint">Drag and drop a Parquet file here, or choose one below.</p>
-              <div class="upload-file-control">
-                <label class="file-input-button" for="upload-file" data-i18n="files.choose_file">Choose file</label>
-                <span id="upload-file-status" class="upload-file-status" role="status" aria-live="polite" data-i18n="files.no_file_selected">No file selected</span>
-              </div>
+              <svg class="upload-dropzone-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                <path d="M14 2v6h6M12 17v-6m-3 3 3-3 3 3" />
+              </svg>
+              <p id="upload-file-hint" class="upload-file-hint" data-i18n="files.drop_hint">Drop a Parquet file here</p>
+              <label class="file-input-button" for="upload-file" data-i18n="files.choose_file">Choose file</label>
             </div>
           </div>
-          <button class="button-primary" type="submit" data-i18n="files.upload">Upload and open</button>
+          <div class="upload-actions">
+            <span id="upload-file-status" class="upload-file-status" role="status" aria-live="polite" data-i18n="files.no_file_selected">No file selected</span>
+            <button id="upload-submit" class="button-primary" type="submit" data-i18n="files.upload" disabled>Upload and open</button>
+          </div>
         </form>
       </div>
       <div id="local-panel" class="panel" hidden>

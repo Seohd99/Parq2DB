@@ -248,3 +248,15 @@ def test_child_table_name_never_equals_a_max_length_parent_name(tmp_path: Path):
     assert len(set(names)) == len(names)
     assert names[0] == parent
     assert len(names[1].encode("utf-8")) <= 63
+
+
+def test_mysql_quoted_columns_cannot_differ_only_by_case():
+    import pyarrow as pa
+
+    schema = pa.schema([("A", pa.int64()), ("a", pa.int64())])
+    with pytest.raises(PBError) as caught:
+        plan_tables(schema, table_name="PB_TEST_CASE", dialect="mysql", column_policy="quoted")
+    assert caught.value.code == "E_IDENTIFIER_INVALID"
+    for dialect in ("postgres", "oracle"):
+        tables = plan_tables(schema, table_name="PB_TEST_CASE", dialect=dialect, column_policy="quoted")
+        assert [column.name for column in tables[0].columns] == ["A", "a"]

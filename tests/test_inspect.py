@@ -111,3 +111,15 @@ def test_preview_keeps_columns_that_differ_only_by_case(tmp_path):
     preview = preview_parquet(path)
     assert preview["columns"] == ["A", "a"]
     assert preview["rows"] == [{"A": 1, "a": 99}]
+
+
+def test_preview_rejects_struct_fields_that_duckdb_would_rename(tmp_path):
+    import pyarrow as pa
+
+    path = tmp_path / "colliding-struct.parquet"
+    values = pa.StructArray.from_arrays([pa.array([1]), pa.array([99])], names=["X", "x"])
+    pq.write_table(pa.table({"details": values}), path)
+    with pytest.raises(PBError) as caught:
+        preview_parquet(path)
+    assert caught.value.code == "E_SCHEMA_NAME_COLLISION"
+    assert caught.value.params == {"path": "details.x"}

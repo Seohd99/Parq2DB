@@ -15,7 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from app.core.errors import PBError
-from app.core.duckdb_utils import alias_list, connect_utc, literal_path, quote_identifier, source_aliases
+from app.core.duckdb_utils import alias_list, connect_utc, literal_path, quote_identifier, source_aliases, validate_source_schema
 
 MAX_PAGE_SIZE = 200
 DEFAULT_PAGE_SIZE = 50
@@ -218,6 +218,7 @@ def preview_parquet(path: Path, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE)
     with _parquet_file(path) as parquet:
         schema = parquet.schema_arrow
         total_rows = parquet.metadata.num_rows
+    validate_source_schema(schema)
     json_columns: set[str] = set()
     projections: list[str] = []
     aliases = source_aliases(len(schema))

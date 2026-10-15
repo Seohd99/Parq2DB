@@ -227,7 +227,7 @@ As an optional step, you can install the editable console script. After installi
 
 ## Usage flow
 
-1. Choose or drop a `.parquet` file in the Upload tab, or browse an allowed folder in the Local path tab.
+1. Choose or drop a `.parquet` file in the Upload tab, then click **Upload and open** (enabled after selecting a file). Alternatively, browse an allowed folder in the Local path tab.
 2. Review the metadata, column statistics, schema, flat/nested classification, and paged row preview.
 3. Choose the flattening mode, target database, table name, and column options to generate DDL and preview the transformed data.
 4. Copy the DDL or download it as a `.sql` file.
@@ -364,10 +364,12 @@ The script outputs JSON with the selected file's size, row count and number of r
 - Original local Parquet files can only be selected from allowed roots and are read-only. Only uploaded files can be deleted from the upload list.
 - Keep `allowed_roots` limited to the folders you need. Path traversal and links pointing outside allowed roots are blocked.
 - Store passwords in environment variables or the gitignored `parqbridge.local.toml`. Do not record passwords or DSNs in logs, the UI, responses, or test fixtures.
-- Closing the browser or restarting the server clears the selected file handles and job state held in memory.
+- Restarting the server clears selected file handles and job state held in memory. Closing the browser does not stop a running load job.
 
 ## Known limitations
 
+- Real Oracle, MySQL, and PostgreSQL integration tests have not been run for this revision; database loading still needs validation against dedicated test databases.
+- Struct fields whose names differ only by case are rejected in previews and plans. MySQL also rejects case-only column-name collisions under the quoted naming policy.
 - Expanding map keys into wide columns is a follow-up task. For now, use JSON in `none` mode or a map child table in `child` mode.
 - `length_scan=sample` is an estimate and does not guarantee the maximum value in the whole file. If you suspect long values were missed or encounter a load error, plan again with `length_scan=full`. The exact maximum measured by a full scan does not guarantee widths for values appended from other files.
 - The `LOAD DATA LOCAL INFILE` path is disabled. MySQL loading currently uses batched `executemany`.

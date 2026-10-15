@@ -203,6 +203,8 @@ function renderUploadFileStatus() {
     ? t("files.selected_upload_file", { name: file.name, size: formatBytes(file.size) })
     : t("files.no_file_selected");
   status.classList.toggle("has-file", Boolean(file));
+  const button = document.getElementById("upload-submit");
+  button.disabled = !file || button.dataset.busy === "true";
 }
 
 function formatValue(value) {
@@ -747,6 +749,8 @@ function setTab(tab) {
   document.getElementById("local-panel").hidden = !local;
   document.getElementById("tab-upload").classList.toggle("active", !local);
   document.getElementById("tab-local").classList.toggle("active", local);
+  document.getElementById("tab-upload").setAttribute("aria-pressed", String(!local));
+  document.getElementById("tab-local").setAttribute("aria-pressed", String(local));
   if (local) loadBrowser();
 }
 
@@ -821,7 +825,7 @@ async function init() {
         renderUploadFileStatus();
         await loadSelection(result.file);
       } catch (error) { showError(error); }
-    });
+    }, renderUploadFileStatus);
   });
   const uploadInput = document.getElementById("upload-file");
   const dropzone = document.getElementById("upload-dropzone");

@@ -12,7 +12,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from app.core.duckdb_utils import alias_list, connect_utc, literal_path, source_aliases
+from app.core.duckdb_utils import alias_list, connect_utc, literal_path, source_aliases, validate_source_schema
 from app.core.dialects import SUPPORTED_DIALECTS
 from app.core.errors import PBError, warning
 from app.core.inspect import _json_safe
@@ -442,7 +442,7 @@ def _row_id_column(name: str = "_PB_ROW_ID", string_strategy: str = "sample") ->
     )
 
 
-def _check_unique_names(tables: list[TableModel], policy: str) -> None:
+def _check_unique_names(tables: list[TableModel], policy: str, dialect: str) -> None:
     """Fail instead of emitting DDL with duplicate table or column names."""
 
     def key(name: str) -> str:
@@ -455,43 +455,10 @@ def _check_unique_names(tables: list[TableModel], policy: str) -> None:
         table_keys.add(key(table.name))
         column_keys: set[str] = set()
         for column in table.columns:
-            if key(column.name) in column_keys:
+            column_key = column.name.casefold() if dialect == "mysql" else key(column.name)
+            if column_key in column_keys:
                 raise PBError("E_IDENTIFIER_INVALID", name=column.name)
-            column_keys.add(key(column.name))
-
-
-def _check_schema_names(schema: pa.Schema) -> None:
-    """Reject field names that DuckDB cannot tell apart.
-
-    Top-level columns are read by position, so only exact duplicates are a problem
-    there. DuckDB matches struct fields case-insensitively and renames case-only
-    duplicates (``x`` becomes ``x_1``), which would silently read or serialize the
-    wrong field, so nested case-only duplicates are rejected.
-    """
-    seen: set[str] = set()
-    for field in schema:
-        if field.name in seen:
-            raise PBError("E_SCHEMA_NAME_COLLISION", path=field.name)
-        seen.add(field.name)
-
-    def visit(data_type: pa.DataType, path: str) -> None:
-        if pa.types.is_struct(data_type):
-            folded: set[str] = set()
-            for child in data_type:
-                key = child.name.casefold()
-                child_path = f"{path}.{child.name}"
-                if key in folded:
-                    raise PBError("E_SCHEMA_NAME_COLLISION", path=child_path)
-                folded.add(key)
-                visit(child.type, child_path)
-        elif pa.types.is_list(data_type) or pa.types.is_large_list(data_type) or pa.types.is_fixed_size_list(data_type):
-            visit(data_type.value_type, f"{path}[]")
-        elif pa.types.is_map(data_type):
-            visit(data_type.key_type, f"{path}.key")
-            visit(data_type.item_type, f"{path}.value")
-
-    for field in schema:
-        visit(field.type, field.name)
+            column_keys.add(column_key)
 
 
 def plan_tables(
@@ -524,7 +491,7 @@ def plan_tables(
         raise PBError("E_BAD_REQUEST", fields=["child_max_depth"])
     if lengths is None:
         lengths = {}
-    _check_schema_names(schema)
+    validate_source_schema(schema)
     field_by_name = {field.name: field for field in schema}
     # Expressions read top-level columns by positional alias, because DuckDB
     # resolves names case-insensitively and would map both A and a to A.
@@ -1045,7 +1012,7 @@ def plan_tables(
         if table.parent_table:
             children_by_parent.setdefault(table.parent_table, []).append(table.name)
     planned = [replace(table, child_tables=tuple(children_by_parent.get(table.name, ()))) for table in tables]
-    _check_unique_names(planned, column_policy)
+    _check_unique_names(planned, column_policy, dialect)
     if dialect == "mysql":
         planned = [enforce_mysql_row_size(table) for table in planned]
     if dialect == "postgres":

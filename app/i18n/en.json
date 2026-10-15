@@ -23,7 +23,7 @@
   "files.tab_upload": "Upload",
   "files.tab_local": "Local path",
   "files.choose_file": "Choose file",
-  "files.drop_hint": "Drag and drop a Parquet file here, or choose one below.",
+  "files.drop_hint": "Drop a Parquet file here",
   "files.no_file_selected": "No file selected",
   "files.selected_upload_file": "{name} · {size}",
   "files.upload": "Upload and open",

@@ -6,6 +6,9 @@ from os import PathLike
 from typing import Any
 
 import duckdb
+import pyarrow as pa
+
+from app.core.errors import PBError
 
 _GLOB_CHARACTERS = frozenset("*?[]")
 
@@ -49,3 +52,37 @@ def source_aliases(column_count: int) -> tuple[str, ...]:
 def alias_list(aliases: tuple[str, ...]) -> str:
     """Render a table-alias column list such as ``("__pb_src_0", "__pb_src_1")``."""
     return "(" + ", ".join(quote_identifier(alias) for alias in aliases) + ")" if aliases else ""
+
+
+def validate_source_schema(schema: pa.Schema) -> None:
+    """Reject field names that DuckDB cannot tell apart.
+
+    Top-level columns are read by position, so only exact duplicates are a problem
+    there. DuckDB matches struct fields case-insensitively and renames case-only
+    duplicates (``x`` becomes ``x_1``), which would silently read or serialize the
+    wrong field, so nested case-only duplicates are rejected.
+    """
+    seen: set[str] = set()
+    for field in schema:
+        if field.name in seen:
+            raise PBError("E_SCHEMA_NAME_COLLISION", path=field.name)
+        seen.add(field.name)
+
+    def visit(data_type: pa.DataType, path: str) -> None:
+        if pa.types.is_struct(data_type):
+            folded: set[str] = set()
+            for child in data_type:
+                key = child.name.casefold()
+                child_path = f"{path}.{child.name}"
+                if key in folded:
+                    raise PBError("E_SCHEMA_NAME_COLLISION", path=child_path)
+                folded.add(key)
+                visit(child.type, child_path)
+        elif pa.types.is_list(data_type) or pa.types.is_large_list(data_type) or pa.types.is_fixed_size_list(data_type):
+            visit(data_type.value_type, f"{path}[]")
+        elif pa.types.is_map(data_type):
+            visit(data_type.key_type, f"{path}.key")
+            visit(data_type.item_type, f"{path}.value")
+
+    for field in schema:
+        visit(field.type, field.name)

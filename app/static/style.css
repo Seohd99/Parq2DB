@@ -153,14 +153,16 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
 .warnings { min-width: 0; margin: 8px 0 0; padding: 8px 12px 8px 30px; color: var(--warning); background: var(--warning-soft); border: 1px solid var(--border); border-left: 3px solid var(--warning); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
 .warnings:empty { display: none; }
 
-.tabs { display: flex; gap: 4px; margin: 0 0 16px; padding: 4px; background: var(--surface-soft); border-radius: 10px; }
-.tab { min-height: 34px !important; padding: 6px 14px !important; border-color: transparent !important; background: transparent !important; color: var(--muted) !important; }
-.tab.active { color: var(--primary) !important; background: var(--surface) !important; border-color: var(--border) !important; box-shadow: var(--shadow-card); }
+.file-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 18px; }
+.file-section-heading h2 { margin: 0; }
+.tabs { display: inline-flex; gap: 4px; max-width: 100%; }
+button.tab { min-height: 34px; padding: 6px 12px; border-color: transparent; background: transparent; color: var(--muted); font-weight: 500; }
+button.tab.active { color: color-mix(in srgb, var(--primary) 65%, var(--fg)); background: var(--primary-soft); border-color: transparent; font-weight: 600; }
 .panel { min-height: 60px; min-width: 0; }
-#upload-form { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-width: 0; }
+#upload-form { display: grid; gap: 16px; min-width: 0; }
 .upload-dropzone {
-  position: relative; flex: 1 1 480px; max-width: 760px; min-width: 0;
-  border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--surface-soft);
+  position: relative; width: 100%; min-width: 0;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-soft);
   transition: border-color .12s ease, background-color .12s ease, box-shadow .12s ease;
 }
 .upload-dropzone:focus-within { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 24%, transparent); }
@@ -169,17 +171,18 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary)
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
-.upload-dropzone-content { display: grid; justify-items: center; gap: 8px; min-width: 0; padding: 20px 16px; text-align: center; }
-.upload-dropzone-icon { display: grid; place-items: center; width: 38px; height: 38px; color: var(--primary); background: var(--primary-soft); border-radius: 50%; font-size: 22px; line-height: 1; }
+.upload-dropzone-content { display: grid; justify-items: center; align-content: center; gap: 10px; min-width: 0; min-height: 190px; padding: 28px 20px; text-align: center; }
+.upload-dropzone-icon { color: var(--muted); margin-bottom: 2px; }
 .upload-file-hint { max-width: 100%; margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-.upload-file-control { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; min-width: 0; max-width: 100%; }
 .file-input-button {
-  display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 7px 12px;
-  color: var(--primary); background: var(--surface); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 4px 8px;
+  color: color-mix(in srgb, var(--primary) 65%, var(--fg)); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 4px;
 }
-.file-input-button:hover { border-color: var(--primary); background: var(--primary-soft); }
-.upload-file-status { max-width: 100%; color: var(--muted); text-align: left; overflow-wrap: anywhere; }
+.file-input-button:hover { color: var(--fg); }
+.upload-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; min-width: 0; }
+.upload-actions button { flex-shrink: 0; }
+#upload-submit:disabled { color: var(--muted); background: var(--surface-soft); border-color: var(--border); opacity: 1; }
+.upload-file-status { min-width: 0; max-width: 100%; color: var(--muted); font-size: 13px; text-align: left; overflow-wrap: anywhere; }
 .upload-file-status.has-file { color: var(--fg); }
 .browser-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-height: 42px; min-width: 0; margin: 10px 0; }
 .browser-toolbar code { min-width: 0; overflow-wrap: anywhere; }
@@ -279,6 +282,8 @@ code { font-family: Consolas, "D2Coding", monospace; font-size: 13px; }
   .load-progress { grid-template-columns: 1fr; }
 }
 @media (max-width: 420px) {
+  .upload-actions { align-items: stretch; flex-direction: column; gap: 12px; }
+  .upload-dropzone-content { min-height: 170px; padding: 24px 12px; }
   .topbar { gap: 8px; }
   .topbar-brand h1 { font-size: 16px; }
   .topbar-controls { gap: 5px; }
