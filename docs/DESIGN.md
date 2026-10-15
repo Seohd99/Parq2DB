@@ -69,6 +69,10 @@ Every DuckDB connection used by the app sets its time zone to UTC. Timezone-awar
 
 API errors and warnings are returned as stable codes with parameters. Their Korean and English text lives in `app/i18n/ko.json` and `app/i18n/en.json`; the browser renders the selected language without requiring a new API request. When a code is added, its definitions and both translations must be updated together.
 
+The browser honors a valid saved `parqbridge.lang` choice first. Without one, it selects the first supported language in `navigator.languages` (or `navigator.language` when the list is unavailable), mapping `ko*` to Korean and `en*` to English; unsupported preferences default to English. The HTML uses English as its static language and initial copy so that untranslated markup is readable before the language catalog loads. A user selection is saved, while a detected default is not persisted. If `localStorage` is unavailable, browser language detection still works.
+
+The CLI uses an explicit `--lang` value when supplied. Otherwise it checks `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, and `LANG` in that order, then on Windows checks `locale.getlocale()` and the user UI language, and finally defaults to English. A `ko*` value selects Korean; unsupported values select English.
+
 The CLI (`python -m app` with a subcommand) and web app share the same inspection, planning, DDL, and job code. CLI load progress is reported in the terminal, and interrupting a load requests cancellation at a batch boundary.
 
 ## Tests and known limits

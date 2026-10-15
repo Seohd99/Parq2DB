@@ -167,7 +167,7 @@ macOS/Linux (bash):
 
 Uvicorn 직접 실행 명령은 Uvicorn 기본 주소인 `127.0.0.1:8000`을 사용합니다.
 
-브라우저에서 서버 주소를 열고 언어 선택기에서 한국어 또는 영어를 고릅니다. 선택한 언어는 브라우저 `localStorage`에 저장됩니다.
+브라우저에서 서버 주소를 열고 언어 선택기에서 한국어 또는 영어를 고릅니다. 저장된 선택이 있으면 우선 사용하고, 없으면 브라우저 언어 목록에서 처음 지원되는 언어(`ko*` 또는 `en*`)를 선택하며 지원 언어가 없으면 영어를 사용합니다. 언어 선택기에서 고른 값은 브라우저 `localStorage`에 저장됩니다.
 
 ## CLI
 
@@ -201,7 +201,7 @@ python=.venv/bin/python
 "$python" -m app config check
 ```
 
-`ddl`과 `load`의 dialect 선택지는 현재 지원 방언에서 가져옵니다. `--lang ko|en`은 각 명령 뒤에 붙여 출력 언어를 고릅니다. `load`의 `truncate` 또는 `drop_create`는 대상 부모 테이블명과 같은 `--confirm-table` 값이 필요하며, Ctrl+C는 배치 경계에서 적재를 취소하고 이미 커밋된 행을 결과에 표시합니다. 종료 코드는 성공 `0`, 실패 `1`, 확인 거부 `2`, 취소 `130`입니다. DB 비밀번호는 CLI 인자로 받지 않으며 기존 `password_env` 또는 `config/parqbridge.local.toml` 설정을 사용합니다.
+`ddl`과 `load`의 dialect 선택지는 현재 지원 방언에서 가져옵니다. `--lang ko|en`은 각 명령 뒤에 붙여 출력 언어를 고르며 기본값보다 우선합니다. 지정하지 않으면 `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, `LANG` 순으로 확인하고, Windows에서는 시스템 로캘과 UI 언어도 확인합니다. 한국어(`ko*`)는 한국어로, 지원하지 않거나 찾을 수 없는 언어는 영어로 처리합니다. `load`의 `truncate` 또는 `drop_create`는 대상 부모 테이블명과 같은 `--confirm-table` 값이 필요하며, Ctrl+C는 배치 경계에서 적재를 취소하고 이미 커밋된 행을 결과에 표시합니다. 종료 코드는 성공 `0`, 실패 `1`, 확인 거부 `2`, 취소 `130`입니다. DB 비밀번호는 CLI 인자로 받지 않으며 기존 `password_env` 또는 `config/parqbridge.local.toml` 설정을 사용합니다.
 
 `ddl -o`는 입력 Parquet 또는 Parquet 파일을 출력 대상으로 거부합니다. 기존 출력 파일을 바꾸려면 `--force`를 지정하세요. `ddl`과 `load`는 `--length-scan full|sample`로 길이 측정 범위를 선택할 수 있고 기본값은 `full`입니다.
 

@@ -162,7 +162,7 @@ def test_inspect_and_preview_human_and_json(monkeypatch, capsys, flat_parquet_pa
     assert inspected["metadata"]["num_row_groups"] == 3
     assert inspected["schema"]["fields"][0]["name"] == "id"
 
-    assert cli.main(["inspect", str(flat_parquet_path)]) == 0
+    assert cli.main(["inspect", str(flat_parquet_path), "--lang", "en"]) == 0
     output = capsys.readouterr().out
     assert "Rows: 3" in output
     assert "Row groups: 3" in output
@@ -214,6 +214,39 @@ def test_length_scan_cli_defaults_to_full_and_accepts_sample():
     ])
     assert default.length_scan == "full"
     assert sampled.length_scan == "sample"
+
+
+@pytest.mark.parametrize(
+    ("environ", "expected"),
+    [
+        ({"PARQBRIDGE_LANG": "ko_KR", "LC_ALL": "en_US"}, "ko"),
+        ({"PARQBRIDGE_LANG": "en_US", "LANG": "ko_KR"}, "en"),
+        ({"LC_ALL": "ko_KR.UTF-8", "LC_MESSAGES": "en_US"}, "ko"),
+        ({"LC_MESSAGES": "ko_KR.UTF-8", "LANG": "en_US"}, "ko"),
+        ({"LANG": "ko_KR.UTF-8"}, "ko"),
+        ({"PARQBRIDGE_LANG": "fr_FR", "LANG": "ko_KR.UTF-8"}, "en"),
+        ({"LC_ALL": "fr_FR.UTF-8", "LANG": "ko_KR.UTF-8"}, "en"),
+        ({"LANG": "fr_FR.UTF-8"}, "en"),
+        ({}, "en"),
+    ],
+)
+def test_default_cli_language_environment_precedence(environ, expected):
+    assert cli._default_lang(environ, windows=False) == expected
+
+
+def test_default_cli_language_uses_windows_preferences_when_available():
+    assert cli._default_lang({}, system_locale="Korean_Korea", windows=True) == "ko"
+    assert cli._default_lang(
+        {}, system_locale="fr_FR", ui_language=0x0412, windows=True,
+    ) == "ko"
+
+
+def test_cli_language_option_overrides_environment(monkeypatch):
+    monkeypatch.setenv("PARQBRIDGE_LANG", "en")
+
+    assert cli._parser().parse_args(["config", "check"]).lang == "en"
+    assert cli._parser().parse_args(["--lang", "ko", "config", "check"]).lang == "ko"
+    assert cli._parser().parse_args(["config", "check", "--lang", "ko"]).lang == "ko"
 
 
 def test_ddl_output_file_and_warnings_stderr(monkeypatch, capsys, parquet_path, tmp_path):
@@ -296,7 +329,8 @@ def test_load_success_and_failure_location(monkeypatch, capsys, flat_parquet_pat
     connection = FakeConnection()
     monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
     assert cli.main([
-        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_LOAD", "--batch-size", "2"
+        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_LOAD", "--batch-size", "2",
+        "--lang", "ko",
     ]) == 0
     output = capsys.readouterr()
     assert "적재 완료" in output.out
@@ -306,7 +340,8 @@ def test_load_success_and_failure_location(monkeypatch, capsys, flat_parquet_pat
     connection = FakeConnection(fail_value=3)
     monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
     assert cli.main([
-        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_FAIL", "--batch-size", "2"
+        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_FAIL", "--batch-size", "2",
+        "--lang", "ko",
     ]) == 1
     output = capsys.readouterr()
     assert "3번째 행" in output.err
@@ -321,7 +356,8 @@ def test_postgres_load_uses_shared_job_dispatch_when_supported(monkeypatch, caps
     connection = FakeConnection(dialect="postgres")
     monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
     assert cli.main([
-        "load", str(flat_parquet_path), "--dialect", "postgres", "--table", "PB_TEST_PG_LOAD", "--batch-size", "2"
+        "load", str(flat_parquet_path), "--dialect", "postgres", "--table", "PB_TEST_PG_LOAD", "--batch-size", "2",
+        "--lang", "ko",
     ]) == 0
     output = capsys.readouterr()
     assert "적재 완료" in output.out
@@ -355,7 +391,8 @@ def test_load_keyboard_interrupt_uses_cooperative_cancel_and_keeps_committed_bat
     monkeypatch.setattr("app.core.jobs.LoadJobManager", CancelAwareManager)
     monkeypatch.setattr(cli.time, "sleep", interrupt_after_insert_started)
     assert cli.main([
-        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_CANCEL", "--batch-size", "2"
+        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_CANCEL", "--batch-size", "2",
+        "--lang", "ko",
     ]) == 130
     output = capsys.readouterr()
     assert "취소됨" in output.out
@@ -401,7 +438,7 @@ def test_load_rejects_path_outside_allowed_roots(monkeypatch, capsys, flat_parqu
     allowed.mkdir()
     configure_cli(monkeypatch, tmp_path, root=allowed, online=True)
     assert cli.main([
-        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_OUTSIDE"
+        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_OUTSIDE", "--lang", "ko",
     ]) == 1
     assert "허용된 폴더 안" in capsys.readouterr().err
 
@@ -431,5 +468,5 @@ def test_serve_non_loopback_override_warns(monkeypatch, capsys, tmp_path):
     import uvicorn
 
     monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
-    assert cli.main(["serve", "--host", "0.0.0.0", "--port", "8766"]) == 0
+    assert cli.main(["serve", "--host", "0.0.0.0", "--port", "8766", "--lang", "ko"]) == 0
     assert "모든 인터페이스" in capsys.readouterr().err

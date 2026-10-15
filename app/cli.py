@@ -7,12 +7,15 @@ delegated to the same core functions used by the web API.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import ipaddress
 import json
+import locale
 import os
 import sys
 import tempfile
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Sequence
@@ -26,6 +29,58 @@ from app.core.inspect import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, inspect_parquet, 
 
 _I18N_DIR = Path(__file__).resolve().parent / "i18n"
 _CATALOGS: dict[str, dict[str, str]] = {}
+
+
+def _language_from_locale(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().casefold()
+    if normalized.startswith("ko"):
+        return "ko"
+    if normalized.startswith("en"):
+        return "en"
+    return None
+
+
+def _default_lang(
+    environ: Mapping[str, str] | None = None,
+    *,
+    system_locale: str | None = None,
+    ui_language: int | None = None,
+    windows: bool | None = None,
+) -> str:
+    """Choose the CLI language from explicit environment and OS preferences."""
+    env = os.environ if environ is None else environ
+    for name in ("PARQBRIDGE_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
+        value = env.get(name)
+        if value and value.strip():
+            return _language_from_locale(value) or "en"
+
+    if windows is None:
+        windows = os.name == "nt"
+    if not windows:
+        return "en"
+
+    if system_locale is None:
+        try:
+            system_locale = locale.getlocale()[0]
+        except (TypeError, ValueError):
+            pass
+    language = _language_from_locale(system_locale)
+    if language:
+        return language
+
+    if ui_language is None:
+        try:
+            ui_language = int(ctypes.windll.kernel32.GetUserDefaultUILanguage())
+        except (AttributeError, OSError, TypeError, ValueError):
+            pass
+    if ui_language is not None:
+        windows_locale = locale.windows_locale.get(int(ui_language))
+        language = _language_from_locale(windows_locale)
+        if language:
+            return language
+    return "en"
 
 
 def _catalog(lang: str) -> dict[str, str]:
@@ -444,7 +499,7 @@ def _offset(value: str) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="parqbridge", allow_abbrev=False)
-    parser.add_argument("--lang", choices=("ko", "en"), default="ko")
+    parser.add_argument("--lang", choices=("ko", "en"), default=_default_lang())
     parser.add_argument("--host", help=argparse.SUPPRESS)
     parser.add_argument("--port", type=_port, help=argparse.SUPPRESS)
     commands = parser.add_subparsers(dest="command")
@@ -525,7 +580,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Keep the historical no-argument invocation: `python -m app` starts serve.
         args.command = "serve"
         args.handler = _serve
-        args.lang = getattr(args, "lang", "ko")
+        args.lang = getattr(args, "lang", "en")
     try:
         return args.handler(args)
     except PBError as exc:

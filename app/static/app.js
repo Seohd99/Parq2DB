@@ -1,7 +1,7 @@
 "use strict";
 
 // API는 에러 코드와 파라미터만 돌려준다. 문구는 여기서 번역한다.
-const I18N = { lang: "ko", dict: {} };
+const I18N = { lang: "en", dict: {} };
 const LANG_KEY = "parqbridge.lang";
 const state = {
   status: null,
@@ -37,14 +37,33 @@ function tCode(item) {
   return t(prefix + item.code, item.params || {});
 }
 
-async function setLang(lang) {
-  if (!['ko', 'en'].includes(lang)) lang = "ko";
+function preferredLang(languages) {
+  for (const candidate of languages) {
+    if (typeof candidate !== "string") continue;
+    const normalized = candidate.trim().toLowerCase();
+    if (normalized.startsWith("ko")) return "ko";
+    if (normalized.startsWith("en")) return "en";
+  }
+  return "en";
+}
+
+function browserLang() {
+  const languages = Array.isArray(navigator.languages) && navigator.languages.length
+    ? navigator.languages
+    : [navigator.language];
+  return preferredLang(languages);
+}
+
+async function setLang(lang, save = true) {
+  if (!["ko", "en"].includes(lang)) lang = browserLang();
   const res = await fetch(`/i18n/${lang}.json`);
   if (!res.ok) throw new Error("Could not load the selected language.");
   I18N.dict = await res.json();
   I18N.lang = lang;
   document.documentElement.lang = lang;
-  try { localStorage.setItem(LANG_KEY, lang); } catch (_) { /* 저장 불가 환경 */ }
+  if (save) {
+    try { localStorage.setItem(LANG_KEY, lang); } catch (_) { /* 저장 불가 환경 */ }
+  }
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
@@ -54,9 +73,10 @@ async function setLang(lang) {
 
 function savedLang() {
   try {
-    const lang = localStorage.getItem(LANG_KEY) || "ko";
-    return ["ko", "en"].includes(lang) ? lang : "ko";
-  } catch (_) { return "ko"; }
+    const lang = localStorage.getItem(LANG_KEY);
+    if (lang !== null && ["ko", "en"].includes(lang)) return lang;
+  } catch (_) { /* continue with browser preferences */ }
+  return browserLang();
 }
 
 async function api(path, options = {}) {
@@ -857,7 +877,7 @@ async function init() {
   document.getElementById("ddl-mode").addEventListener("change", updateDdlControls);
   document.getElementById("ddl-dialect").addEventListener("change", updateDdlControls);
   try { state.status = await api("/api/status"); } catch (error) { showError(error); }
-  await setLang(lang);
+  await setLang(lang, false);
 }
 
 init();

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,38 +11,38 @@
     <h1>ParqBridge</h1>
     <span id="version" class="muted"></span>
     <div class="spacer"></div>
-    <label for="lang" data-i18n="ui.language">언어</label>
+    <label for="lang" data-i18n="ui.language">Language</label>
     <select id="lang">
-      <option value="ko" data-i18n="ui.korean">한국어</option>
-      <option value="en" data-i18n="ui.english">English</option>
+      <option value="ko" data-i18n="ui.korean">Korean</option>
+      <option value="en" data-i18n="ui.english" selected>English</option>
     </select>
   </header>
 
   <main>
     <section class="card" id="db-status">
-      <h2 data-i18n="status.title">DB 연결 상태</h2>
+      <h2 data-i18n="status.title">Database connections</h2>
       <ul id="db-list"></ul>
       <ul id="config-warnings" class="warnings"></ul>
     </section>
 
     <section class="card" id="files-card">
-      <h2 data-i18n="files.title">Parquet 파일 선택</h2>
+      <h2 data-i18n="files.title">Select a Parquet file</h2>
       <div class="tabs" role="tablist">
-        <button id="tab-upload" class="tab active" type="button" data-i18n="files.tab_upload">업로드</button>
-        <button id="tab-local" class="tab" type="button" data-i18n="files.tab_local">로컬 경로</button>
+        <button id="tab-upload" class="tab active" type="button" data-i18n="files.tab_upload">Upload</button>
+        <button id="tab-local" class="tab" type="button" data-i18n="files.tab_local">Local path</button>
       </div>
       <div id="upload-panel" class="panel">
         <form id="upload-form">
-          <label for="upload-file" data-i18n="files.choose_file">Parquet 파일</label>
+          <label for="upload-file" data-i18n="files.choose_file">Parquet file</label>
           <input id="upload-file" name="file" type="file" accept=".parquet" required>
-          <button type="submit" data-i18n="files.upload">업로드하고 열기</button>
+          <button type="submit" data-i18n="files.upload">Upload and open</button>
         </form>
       </div>
       <div id="local-panel" class="panel" hidden>
-        <p data-i18n="files.allowed_roots">허용된 폴더만 표시됩니다.</p>
+        <p data-i18n="files.allowed_roots">Only allowed folders are shown.</p>
         <div id="browser-roots" class="entry-list"></div>
         <div class="browser-toolbar">
-          <button id="browser-up" type="button" data-i18n="files.parent" disabled>상위 폴더</button>
+          <button id="browser-up" type="button" data-i18n="files.parent" disabled>Parent folder</button>
           <code id="browser-current"></code>
         </div>
         <div id="browser-entries" class="entry-list"></div>
@@ -54,14 +54,14 @@
           <strong id="selected-name"></strong>
           <span id="selected-meta" class="muted"></span>
         </div>
-        <button id="delete-upload" class="danger-button" type="button" data-i18n="files.delete_upload" hidden>업로드 파일 삭제</button>
+        <button id="delete-upload" class="danger-button" type="button" data-i18n="files.delete_upload" hidden>Delete uploaded file</button>
       </div>
     </section>
 
     <section id="inspection" hidden>
       <section class="card">
         <div class="section-heading">
-          <h2 data-i18n="inspect.overview">파일 개요</h2>
+          <h2 data-i18n="inspect.overview">File overview</h2>
           <span id="type-badge" class="badge"></span>
         </div>
         <div id="metadata-cards" class="metadata-grid"></div>
@@ -69,15 +69,15 @@
       </section>
 
       <section class="card">
-        <h2 data-i18n="inspect.statistics">컬럼 통계</h2>
+        <h2 data-i18n="inspect.statistics">Column statistics</h2>
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th data-i18n="inspect.column">컬럼</th>
-              <th data-i18n="inspect.null_count">Null 수</th>
-              <th data-i18n="inspect.minimum">최솟값</th>
-              <th data-i18n="inspect.maximum">최댓값</th>
-              <th data-i18n="inspect.compression">압축</th>
+              <th data-i18n="inspect.column">Column</th>
+              <th data-i18n="inspect.null_count">Null count</th>
+              <th data-i18n="inspect.minimum">Minimum</th>
+              <th data-i18n="inspect.maximum">Maximum</th>
+              <th data-i18n="inspect.compression">Compression codecs</th>
             </tr></thead>
             <tbody id="statistics-body"></tbody>
           </table>
@@ -85,23 +85,23 @@
       </section>
 
       <section class="card">
-        <h2 data-i18n="inspect.schema">스키마 트리</h2>
+        <h2 data-i18n="inspect.schema">Schema tree</h2>
         <div id="schema-tree" class="schema-tree"></div>
       </section>
 
       <section class="card">
         <div class="section-heading">
-          <h2 data-i18n="inspect.preview">데이터 미리보기</h2>
+          <h2 data-i18n="inspect.preview">Data preview</h2>
           <span id="preview-count" class="muted"></span>
         </div>
         <div class="table-wrap">
           <table id="preview-table"></table>
         </div>
         <div class="pager">
-          <button id="page-prev" type="button" data-i18n="inspect.previous">이전</button>
+          <button id="page-prev" type="button" data-i18n="inspect.previous">Previous</button>
           <span id="page-label" class="muted"></span>
-          <button id="page-next" type="button" data-i18n="inspect.next">다음</button>
-          <label for="page-size" data-i18n="inspect.page_size">페이지 크기</label>
+          <button id="page-next" type="button" data-i18n="inspect.next">Next</button>
+          <label for="page-size" data-i18n="inspect.page_size">Page size</label>
           <select id="page-size">
             <option>25</option><option selected>50</option><option>100</option><option>200</option>
           </select>
@@ -109,44 +109,44 @@
       </section>
 
       <section class="card" id="ddl-card">
-        <h2 data-i18n="ddl.title">DDL 만들기</h2>
+        <h2 data-i18n="ddl.title">Create DDL</h2>
         <div class="ddl-options">
-          <label><span data-i18n="ddl.dialect">대상 DB</span>
-            <select id="ddl-dialect"><option value="oracle">Oracle 12.2+ (19c 기준)</option><option value="mysql">MySQL 8+</option><option value="postgres">PostgreSQL 16+</option></select>
+          <label><span data-i18n="ddl.dialect">Target database</span>
+            <select id="ddl-dialect"><option value="oracle">Oracle 12.2+ (19c design target)</option><option value="mysql">MySQL 8+</option><option value="postgres">PostgreSQL 16+</option></select>
           </label>
-          <label><span data-i18n="ddl.mode">펼치기 모드</span>
+          <label><span data-i18n="ddl.mode">Flatten mode</span>
             <select id="ddl-mode">
-              <option value="none" data-i18n="ddl.mode_none">미펼침 (JSON)</option>
-              <option value="child" data-i18n="ddl.mode_child">자식 테이블</option>
-              <option value="explode" data-i18n="ddl.mode_explode">행 전개</option>
+              <option value="none" data-i18n="ddl.mode_none">Keep nested values as JSON</option>
+              <option value="child" data-i18n="ddl.mode_child">Child tables</option>
+              <option value="explode" data-i18n="ddl.mode_explode">Explode rows</option>
             </select>
           </label>
-          <label><span data-i18n="ddl.table_name">테이블명</span><input id="ddl-table-name" type="text" maxlength="128"></label>
-          <label><span data-i18n="ddl.column_policy">컬럼명 정책</span>
+          <label><span data-i18n="ddl.table_name">Table name</span><input id="ddl-table-name" type="text" maxlength="128"></label>
+          <label><span data-i18n="ddl.column_policy">Column names</span>
             <select id="ddl-column-policy">
-              <option value="upper_unquoted" data-i18n="ddl.policy_upper">대문자 비인용</option>
-              <option value="quoted" data-i18n="ddl.policy_quoted">원본 그대로 인용</option>
+              <option value="upper_unquoted" data-i18n="ddl.policy_upper">Uppercase, unquoted</option>
+              <option value="quoted" data-i18n="ddl.policy_quoted">Preserve and quote source names</option>
             </select>
           </label>
-          <label><span data-i18n="ddl.string_strategy">문자열 길이</span>
+          <label><span data-i18n="ddl.string_strategy">String type width</span>
             <select id="ddl-string-strategy">
-              <option value="sample" data-i18n="ddl.string_sample">전체 구간 표본</option>
-              <option value="max" data-i18n="ddl.string_max">고정 최대 크기</option>
-              <option value="lob" data-i18n="ddl.string_lob">항상 LOB</option>
+              <option value="sample" data-i18n="ddl.string_sample">Evenly spaced sample</option>
+              <option value="max" data-i18n="ddl.string_max">Fixed maximum width</option>
+              <option value="lob" data-i18n="ddl.string_lob">Always use LOB</option>
             </select>
           </label>
-          <label><span data-i18n="ddl.length_scan">길이 측정 범위</span>
+          <label><span data-i18n="ddl.length_scan">Length scan scope</span>
             <select id="ddl-length-scan">
-              <option value="full" data-i18n="ddl.length_scan_full">전체 파일 (정확)</option>
-              <option value="sample" data-i18n="ddl.length_scan_sample">분산 표본 (최대 512행 · 4개 row group · 빠름)</option>
+              <option value="full" data-i18n="ddl.length_scan_full">Entire file (exact)</option>
+              <option value="sample" data-i18n="ddl.length_scan_sample">Stratified sample (up to 512 rows; 4 row groups; fast)</option>
             </select>
           </label>
-          <label><span data-i18n="ddl.parent_key">부모 키</span><select id="ddl-parent-key"></select></label>
-          <label><span data-i18n="ddl.explode_column">전개할 list 컬럼</span><select id="ddl-explode-column"></select></label>
-          <label class="check-option"><input id="ddl-preserve-empty" type="checkbox" checked><span data-i18n="ddl.preserve_empty">빈 배열/null 행 유지</span></label>
-          <label class="check-option"><input id="ddl-json-check" type="checkbox"><span data-i18n="ddl.json_check">Oracle IS JSON 검사 추가</span></label>
+          <label><span data-i18n="ddl.parent_key">Parent key</span><select id="ddl-parent-key"></select></label>
+          <label><span data-i18n="ddl.explode_column">List column to explode</span><select id="ddl-explode-column"></select></label>
+          <label class="check-option"><input id="ddl-preserve-empty" type="checkbox" checked><span data-i18n="ddl.preserve_empty">Keep empty/null list rows</span></label>
+          <label class="check-option"><input id="ddl-json-check" type="checkbox"><span data-i18n="ddl.json_check">Add Oracle IS JSON checks</span></label>
         </div>
-        <button id="ddl-generate" type="button" data-i18n="ddl.generate">DDL 계획과 미리보기</button>
+        <button id="ddl-generate" type="button" data-i18n="ddl.generate">Build DDL plan and preview</button>
         <p id="ddl-measurement" class="measurement-badge" hidden aria-live="polite"></p>
         <ul id="ddl-warnings" class="warnings"></ul>
         <div id="ddl-mappings" class="table-wrap"></div>
@@ -154,25 +154,25 @@
         <div class="ddl-result-tools">
           <h3 data-i18n="ddl.sql">SQL</h3>
           <div class="button-row">
-            <button id="ddl-copy" type="button" data-i18n="ddl.copy" disabled>복사</button>
-            <button id="ddl-download" type="button" data-i18n="ddl.download" disabled>.sql 다운로드</button>
+            <button id="ddl-copy" type="button" data-i18n="ddl.copy" disabled>Copy</button>
+            <button id="ddl-download" type="button" data-i18n="ddl.download" disabled>Download .sql</button>
           </div>
         </div>
         <pre id="ddl-output" class="sql-output"></pre>
         <section class="load-panel" aria-labelledby="load-title">
-          <h3 id="load-title" data-i18n="load.title">CREATE 및 INSERT</h3>
+          <h3 id="load-title" data-i18n="load.title">CREATE and INSERT</h3>
           <div class="load-controls">
-            <label><span data-i18n="load.existing_policy">기존 테이블 정책</span>
+            <label><span data-i18n="load.existing_policy">Existing table policy</span>
               <select id="load-policy">
-                <option value="fail" data-i18n="load.policy_fail">실패 (기본)</option>
-                <option value="append" data-i18n="load.policy_append">이어 넣기</option>
-                <option value="truncate" data-i18n="load.policy_truncate">비우고 적재</option>
-                <option value="drop_create" data-i18n="load.policy_drop_create">삭제 후 다시 생성</option>
+                <option value="fail" data-i18n="load.policy_fail">Fail (default)</option>
+                <option value="append" data-i18n="load.policy_append">Append rows</option>
+                <option value="truncate" data-i18n="load.policy_truncate">Truncate and load</option>
+                <option value="drop_create" data-i18n="load.policy_drop_create">Drop and recreate</option>
               </select>
             </label>
             <div class="button-row">
               <button id="load-start" type="button" data-i18n="load.start" disabled>CREATE + INSERT</button>
-              <button id="load-cancel" type="button" class="danger-button" data-i18n="load.cancel" hidden>취소</button>
+              <button id="load-cancel" type="button" class="danger-button" data-i18n="load.cancel" hidden>Cancel</button>
             </div>
           </div>
           <p id="load-offline-reason" class="muted"></p>

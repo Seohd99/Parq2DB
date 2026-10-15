@@ -167,7 +167,7 @@ macOS/Linux (bash):
 
 Running Uvicorn directly uses its default address, `127.0.0.1:8000`.
 
-Open the server address in a browser and choose Korean or English with the language selector. The selected language is saved in browser `localStorage`.
+Open the server address in a browser and choose Korean or English with the language selector. A saved choice takes priority; otherwise the UI uses the first supported browser language (`ko*` or `en*`) and defaults to English. A language chosen with the selector is saved in browser `localStorage`.
 
 ## CLI
 
@@ -201,7 +201,7 @@ python=.venv/bin/python
 "$python" -m app config check
 ```
 
-The dialect choices for `ddl` and `load` come from the currently supported dialects. Add `--lang ko|en` after each command to choose its output language. The `truncate` or `drop_create` policy for `load` requires a `--confirm-table` value that matches the target parent table name. Ctrl+C cancels loading at a batch boundary and the result reports rows that were already committed. Exit codes are success `0`, failure `1`, confirmation denied `2`, and cancelled `130`. The CLI does not accept database passwords as arguments; it uses the existing `password_env` or `config/parqbridge.local.toml` setting.
+The dialect choices for `ddl` and `load` come from the currently supported dialects. Add `--lang ko|en` after each command to choose its output language; an explicit value overrides the default. Without it, the CLI checks `PARQBRIDGE_LANG`, then `LC_ALL`, `LC_MESSAGES`, and `LANG`; Windows also checks the system locale and UI language. Korean preferences (`ko*`) select Korean, while unsupported or missing preferences default to English. The `truncate` or `drop_create` policy for `load` requires a `--confirm-table` value that matches the target parent table name. Ctrl+C cancels loading at a batch boundary and the result reports rows that were already committed. Exit codes are success `0`, failure `1`, confirmation denied `2`, and cancelled `130`. The CLI does not accept database passwords as arguments; it uses the existing `password_env` or `config/parqbridge.local.toml` setting.
 
 `ddl -o` rejects the input Parquet file and any Parquet file as an output target. Specify `--force` to replace an existing output file. `ddl` and `load` support `--length-scan full|sample` to choose the length measurement scope; the default is `full`.
 
