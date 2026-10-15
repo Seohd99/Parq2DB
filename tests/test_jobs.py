@@ -432,6 +432,53 @@ def test_job_manager_prevents_overlapping_table_jobs(monkeypatch, tmp_path):
         manager.shutdown()
 
 
+def _generated_key_tables(tmp_path):
+    import pyarrow as pa
+
+    path = tmp_path / "child.parquet"
+    pq.write_table(pa.table({
+        "name": ["a", "b"],
+        "items": pa.array([[1], [2, 3]], type=pa.list_(pa.int64())),
+    }), path)
+    with pq.ParquetFile(path) as parquet:
+        schema = parquet.schema_arrow
+    return plan_tables(schema, table_name="PB_TEST_PARENT", mode="child", dialect="mysql", string_strategy="max")
+
+
+def test_append_with_generated_parent_key_requires_empty_tables(tmp_path):
+    tables = _generated_key_tables(tmp_path)
+    columns = {table.name: {column.name for column in table.columns} for table in tables}
+    existing = {table.name for table in tables}
+
+    empty = FakeConnection(existing=existing, columns=columns)
+    _prepare_tables(empty, online_profile(), tables, "append", threading.Event())
+
+    for populated_table in (tables[0].name, tables[1].name):
+        populated = FakeConnection(existing=existing, columns=columns)
+        populated.row_counts[populated_table] = 2
+        with pytest.raises(PBError) as caught:
+            _prepare_tables(populated, online_profile(), tables, "append", threading.Event())
+        assert caught.value.code == "E_APPEND_GENERATED_KEY"
+        assert caught.value.params == {"table": populated_table}
+
+
+def test_append_with_user_parent_key_is_allowed_on_populated_tables(tmp_path):
+    import pyarrow as pa
+
+    path = tmp_path / "keyed.parquet"
+    pq.write_table(pa.table({
+        "id": [1, 2],
+        "items": pa.array([[1], [2]], type=pa.list_(pa.int64())),
+    }), path)
+    with pq.ParquetFile(path) as parquet:
+        schema = parquet.schema_arrow
+    tables = plan_tables(schema, table_name="PB_TEST_PARENT", mode="child", dialect="mysql", parent_key="id")
+    columns = {table.name: {column.name for column in table.columns} for table in tables}
+    connection = FakeConnection(existing={table.name for table in tables}, columns=columns)
+    connection.row_counts[tables[0].name] = 2
+    _prepare_tables(connection, online_profile(), tables, "append", threading.Event())
+
+
 def test_none_mode_load_keeps_columns_that_differ_only_by_case(monkeypatch, tmp_path):
     import pyarrow as pa
 

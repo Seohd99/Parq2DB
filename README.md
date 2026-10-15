@@ -246,7 +246,7 @@ The default, unchecked mode is `none`. DDL previews and load plans use the same 
 | `child` | Flattens struct fields into parent columns and creates child tables for list/map values with a parent key, ordinal, and value. Nested containers beyond the depth limit remain JSON. | `author.name` → `AUTHOR_NAME`; `tags: ["a", "b"]` → parent table and `ORD` plus value rows in the `TABLE_TAGS` child table |
 | `explode` | Expands one selected top-level list into rows. Other nested columns remain JSON. By default, it keeps parent rows for null/empty arrays and sets the list value to `NULL`. | `tags: ["a", "b"]` → one row per tag |
 
-In `child` mode, you can use a selected top-level scalar column as the parent key. If you do not select one, the app generates `_PB_ROW_ID` from the file row number. `explode` requires selecting one list column; the preview shows the expected row count.
+In `child` mode, you can use a selected top-level scalar column as the parent key. If you do not select one, the app generates `_PB_ROW_ID` from the file row number (`PB_ROW_ID` for Oracle unquoted names, which must start with a letter). Because a generated key restarts at 0 for each file, `append` with a generated key is allowed only while the target tables are empty; select a parent key column to append several files. Struct fields whose names differ only by case are not supported and are rejected with `E_SCHEMA_NAME_COLLISION`. `explode` requires selecting one list column; the preview shows the expected row count.
 
 ## Main type mapping
 
@@ -278,7 +278,7 @@ A `full` scan has no margin above the current file's maximum, so a longer value 
 Choose a policy before `CREATE + INSERT`.
 
 - `fail`: Reject the operation if a table with the same name exists. This is the default.
-- `append`: Add rows when the existing table's column set matches the plan.
+- `append`: Add rows when the existing table's column set matches the plan. With a generated `child` key, every target table must be empty.
 - `truncate`: Empty the confirmed target table and load the data.
 - `drop_create`: Drop the confirmed table and create it again.
 

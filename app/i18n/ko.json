@@ -153,6 +153,7 @@
   "error.E_DDL_OUTPUT_PROTECTED": "Parquet 원본이나 Parquet 파일은 DDL 출력 대상으로 사용할 수 없습니다: {path}.",
   "error.E_DDL_OUTPUT_EXISTS": "출력 파일이 이미 있습니다: {path}. 덮어쓰려면 --force를 사용하세요.",
   "error.E_TABLE_EXISTS": "테이블이 이미 있습니다: {table} ({tables}).",
+  "error.E_APPEND_GENERATED_KEY": "테이블 {table}에 이미 행이 있습니다. 자동 생성 행 ID 키는 파일마다 0부터 시작하므로 추가 적재하면 자식 행이 잘못된 부모와 연결됩니다. 부모 키 컬럼을 선택하거나 빈 테이블에 적재하세요.",
   "error.E_APPEND_COLUMNS_MISMATCH": "기존 테이블 {table}의 컬럼이 적재 계획과 다릅니다. 누락: {missing}; 추가: {extra}.",
   "error.E_DB_CONNECT": "DB에 연결하지 못했습니다 (드라이버 코드: {driver_code}).",
   "error.E_DB_OPERATION_FAILED": "DB 작업에 실패했습니다 (드라이버 코드: {driver_code}).",

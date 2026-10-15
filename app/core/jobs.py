@@ -92,6 +92,14 @@ def _normalized_column_names(names: set[str] | list[str], table: TableModel) -> 
     return {name.upper() for name in names}
 
 
+def _has_generated_parent_key(tables: Sequence[TableModel]) -> bool:
+    root = tables[0]
+    if root.mode != "child":
+        return False
+    keys = set(root.parent_key)
+    return any(column.generated and column.name in keys for column in root.columns)
+
+
 def _preflight(
     connection: Any,
     profile: DbProfile,
@@ -111,6 +119,14 @@ def _preflight(
         existing = [name for name, present in exists.items() if present]
         if existing:
             raise PBError("E_TABLE_EXISTS", table=existing[0], tables=existing)
+    if existing_policy == "append" and _has_generated_parent_key(tables):
+        # Generated keys restart at 0 for every file, so appending to tables that
+        # already hold rows would give different parents the same key.
+        for table in tables:
+            if exists[table.name] and count_table(
+                connection, profile, table.name, quoted=table.identifier_policy == "quoted",
+            ):
+                raise PBError("E_APPEND_GENERATED_KEY", table=table.name)
     if existing_policy == "append":
         for table in tables:
             if not exists[table.name]:

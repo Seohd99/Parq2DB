@@ -157,6 +157,7 @@
   "error.E_DDL_OUTPUT_PROTECTED": "The input or a Parquet file cannot be used as DDL output: {path}.",
   "error.E_DDL_OUTPUT_EXISTS": "Output file already exists: {path}. Use --force to replace it.",
   "error.E_TABLE_EXISTS": "Table already exists: {table} ({tables}).",
+  "error.E_APPEND_GENERATED_KEY": "Table {table} already has rows. A generated row ID key restarts at 0 for each file, so appending would link child rows to the wrong parents. Choose a parent key column or load into empty tables.",
   "error.E_APPEND_COLUMNS_MISMATCH": "Existing columns do not match the load plan for {table}. Missing: {missing}; extra: {extra}.",
   "error.E_DB_CONNECT": "Could not connect to the database (driver code: {driver_code}).",
   "error.E_DB_OPERATION_FAILED": "The database operation failed (driver code: {driver_code}).",
