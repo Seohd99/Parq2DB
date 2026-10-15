@@ -430,3 +430,35 @@ def test_job_manager_prevents_overlapping_table_jobs(monkeypatch, tmp_path):
     finally:
         release.set()
         manager.shutdown()
+
+
+def test_none_mode_load_keeps_columns_that_differ_only_by_case(monkeypatch, tmp_path):
+    import pyarrow as pa
+
+    path = tmp_path / "case.parquet"
+    pq.write_table(pa.table({"A": [1, 2], "a": [99, 98]}), path)
+    tables = planned_table(path)
+    connection = FakeConnection()
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    from app.core import jobs
+
+    inserted = []
+    original = jobs.load_mysql.insert_batch
+
+    def capture(conn, table, rows):
+        inserted.extend(rows)
+        original(conn, table, rows)
+
+    monkeypatch.setattr(jobs.load_mysql, "insert_batch", capture)
+    execute_load(
+        path=path,
+        tables=tables,
+        profile=online_profile(),
+        source_rows=2,
+        batch_size=10,
+        existing_policy="fail",
+        cancel_event=threading.Event(),
+        progress=lambda *_: None,
+    )
+    assert [column.name for column in tables[0].columns] == ["A", "A_2"]
+    assert inserted == [(1, 99), (2, 98)]

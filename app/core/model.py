@@ -78,6 +78,8 @@ class SelectPlan:
     order_by: tuple[str, ...] = ()
     explode_expression: str | None = None
     preserve_empty: bool = True
+    # Positional aliases for the file's top-level columns; expressions reference these.
+    source_columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

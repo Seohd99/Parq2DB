@@ -140,6 +140,7 @@
   "error.E_DB_CONFIG_INVALID": "DB 설정이 불완전합니다. 빠진 키: {missing} {key}",
   "error.E_UPLOAD_TOO_LARGE": "업로드 파일이 허용 크기를 초과했습니다. 최대 {max_bytes}바이트입니다.",
   "error.E_PARQUET_INVALID": "유효한 Parquet 파일이 아닙니다.",
+  "error.E_SCHEMA_NAME_COLLISION": "필드 {path}의 이름이 다른 필드와 중복됩니다(대소문자만 다른 struct 필드 포함). 지원하지 않는 스키마입니다.",
   "error.E_PATH_NOT_ALLOWED": "허용된 폴더 안의 경로만 선택할 수 있습니다.",
   "error.E_FILE_NOT_FOUND": "선택한 파일 핸들을 찾을 수 없습니다.",
   "error.E_TABLE_NAME_INVALID": "{dialect} 테이블 이름이 올바르지 않습니다. 영문자, 숫자, 밑줄을 사용하고 {max_length}자/바이트 이하여야 합니다.",

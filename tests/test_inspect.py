@@ -87,3 +87,27 @@ def test_preview_binds_path_instead_of_interpolating_sql(parquet_path, tmp_path)
     result = preview_parquet(unusual_path, limit=1)
     assert result["rows"][0]["id"] == 1
 
+
+
+def test_preview_reads_only_the_selected_file_when_path_has_glob_characters(tmp_path):
+    import pyarrow as pa
+
+    selected_dir = tmp_path / "[ab]"
+    sibling_dir = tmp_path / "a"
+    selected_dir.mkdir()
+    sibling_dir.mkdir()
+    pq.write_table(pa.table({"x": [1]}), selected_dir / "f.parquet")
+    pq.write_table(pa.table({"x": [999]}), sibling_dir / "f.parquet")
+
+    preview = preview_parquet(selected_dir / "f.parquet")
+    assert preview["rows"] == [{"x": 1}]
+
+
+def test_preview_keeps_columns_that_differ_only_by_case(tmp_path):
+    import pyarrow as pa
+
+    path = tmp_path / "case.parquet"
+    pq.write_table(pa.table({"A": [1], "a": [99]}), path)
+    preview = preview_parquet(path)
+    assert preview["columns"] == ["A", "a"]
+    assert preview["rows"] == [{"A": 1, "a": 99}]

@@ -156,3 +156,42 @@ def test_table_name_validation_returns_error_code():
     with pytest.raises(PBError) as error:
         validate_table_name("A" * 65, "mysql")
     assert error.value.code == "E_TABLE_NAME_INVALID"
+
+
+def test_child_preview_reads_only_the_selected_file_when_path_has_glob_characters(tmp_path: Path):
+    import pyarrow as pa
+
+    for folder, values in (("[ab]", [[1, 2]]), ("a", [[7, 8, 9]])):
+        (tmp_path / folder).mkdir()
+        pq.write_table(pa.table({"items": pa.array(values, type=pa.list_(pa.int64()))}), tmp_path / folder / "f.parquet")
+    path = tmp_path / "[ab]" / "f.parquet"
+    models = plan(path, mode="child", dialect="postgres")
+    child = query_table_preview(path, models[1])
+    assert [row["VALUE"] for row in child["rows"]] == [1, 2]
+
+
+@pytest.mark.parametrize("mode", ["none", "child"])
+def test_columns_differing_only_by_case_keep_their_own_values(tmp_path: Path, mode: str):
+    import pyarrow as pa
+
+    path = tmp_path / "case.parquet"
+    pq.write_table(pa.table({
+        "A": [1, 2],
+        "a": [99, 98],
+        "items": pa.array([[5], [6]], type=pa.list_(pa.int64())),
+    }), path)
+    models = plan(path, mode=mode, dialect="postgres")
+    rows = query_table_preview(path, models[0])["rows"]
+    assert [(row["A"], row["A_2"]) for row in rows] == [(1, 99), (2, 98)]
+
+
+def test_struct_fields_differing_only_by_case_are_rejected(tmp_path: Path):
+    import pyarrow as pa
+
+    struct = pa.StructArray.from_arrays([pa.array([1]), pa.array([2])], names=["X", "x"])
+    path = tmp_path / "case-struct.parquet"
+    pq.write_table(pa.table({"s": struct}), path)
+    with pytest.raises(PBError) as error:
+        plan(path, mode="none", dialect="postgres")
+    assert error.value.code == "E_SCHEMA_NAME_COLLISION"
+    assert error.value.params == {"path": "s.x"}

@@ -15,7 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from app.core.errors import PBError
-from app.core.duckdb_utils import connect_utc
+from app.core.duckdb_utils import alias_list, connect_utc, literal_path, quote_identifier, source_aliases
 
 MAX_PAGE_SIZE = 200
 DEFAULT_PAGE_SIZE = 50
@@ -220,21 +220,25 @@ def preview_parquet(path: Path, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE)
         total_rows = parquet.metadata.num_rows
     json_columns: set[str] = set()
     projections: list[str] = []
-    for field in schema:
-        quoted = '"' + field.name.replace('"', '""') + '"'
+    aliases = source_aliases(len(schema))
+    for field, alias in zip(schema, aliases):
+        # Read by positional alias: DuckDB matches names case-insensitively.
+        source = f"src.{quote_identifier(alias)}"
+        quoted = quote_identifier(field.name)
         if _container_kind(field.type) is not None:
-            projections.append(f"CAST(to_json({quoted}) AS VARCHAR) AS {quoted}")
+            projections.append(f"CAST(to_json({source}) AS VARCHAR) AS {quoted}")
             json_columns.add(field.name)
         elif pa.types.is_timestamp(field.type) and field.type.tz is not None:
-            projections.append(f"CAST({quoted} AS VARCHAR) AS {quoted}")
+            projections.append(f"CAST({source} AS VARCHAR) AS {quoted}")
         else:
-            projections.append(quoted)
+            projections.append(f"{source} AS {quoted}")
     try:
         connection = connect_utc()
         try:
             cursor = connection.execute(
-                f"SELECT {', '.join(projections)} FROM read_parquet(?) LIMIT ? OFFSET ?",
-                [str(path), limit, offset],
+                f"SELECT {', '.join(projections)} FROM read_parquet(?) AS src{alias_list(aliases)} "
+                "LIMIT ? OFFSET ?",
+                [literal_path(path), limit, offset],
             )
             columns = [description[0] for description in cursor.description or ()]
             raw_rows = cursor.fetchall()

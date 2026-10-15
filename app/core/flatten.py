@@ -12,7 +12,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from app.core.duckdb_utils import connect_utc
+from app.core.duckdb_utils import alias_list, connect_utc, literal_path, source_aliases
 from app.core.dialects import SUPPORTED_DIALECTS
 from app.core.errors import PBError, warning
 from app.core.inspect import _json_safe
@@ -216,30 +216,34 @@ def _count_formula(expression: str, preserve_empty: bool = False) -> str:
     return f"COALESCE(len({expression}), 0)"
 
 
+def _source_parts(plan: SelectPlan, source: str = "read_parquet(?)") -> tuple[str, str]:
+    """Return the WITH clause and FROM clause that expose the source as ``src``."""
+    aliases = alias_list(plan.source_columns)
+    if not plan.needs_row_id:
+        return "", f"FROM {source} AS src{aliases}"
+    if plan.row_id_strategy == "file_row_number" and source == "read_parquet(?)":
+        row_id = "file_row_number"
+        source = "read_parquet(?, file_row_number=true)"
+    else:
+        row_id = "row_number() OVER () - 1"
+    cte = (
+        f"WITH src AS (SELECT *, {row_id} AS {_quote(plan.internal_row_id)} "
+        f"FROM {source} AS raw{aliases}) "
+    )
+    return cte, "FROM src"
+
+
 def _select_sql_from_parts(
     *,
-    selections: Iterable[SelectItem],
-    joins: Iterable[JoinSpec],
-    needs_row_id: bool,
-    row_id_strategy: str,
-    internal_row_id: str,
+    plan: SelectPlan,
     dialect: str,
-    order_by: Iterable[str] = (),
     limit: int | None = None,
-    offset: int = 0,
+    source: str = "read_parquet(?)",
 ) -> str:
-    cte = ""
-    if needs_row_id:
-        if row_id_strategy == "file_row_number":
-            row_id = "file_row_number"
-            source = "read_parquet(?, file_row_number=true)"
-        else:
-            row_id = "row_number() OVER () - 1"
-            source = "read_parquet(?)"
-        cte = f"WITH src AS (SELECT *, {row_id} AS {_quote(internal_row_id)} FROM {source}) "
-        from_clause = "FROM src"
-    else:
-        from_clause = "FROM read_parquet(?) AS src"
+    selections = plan.selections
+    joins = plan.joins
+    order_by = plan.order_by
+    cte, from_clause = _source_parts(plan, source)
 
     rendered: list[str] = []
     for item in selections:
@@ -272,22 +276,21 @@ def build_select_sql(
     dialect: str = "oracle",
     limit: int | None = None,
     offset: int = 0,
+    source: str = "read_parquet(?)",
 ) -> str:
-    """Return the SELECT SQL for a table, with path parameters to bind."""
+    """Return the SELECT SQL for a table, with path parameters to bind.
+
+    ``source`` replaces ``read_parquet(?)``, for example with a registered Arrow batch.
+    """
     if table.select_plan is None:
         raise ValueError(f"table {table.name} has no select plan")
     if offset < 0 or (limit is not None and limit < 1):
         raise PBError("E_BAD_REQUEST", fields=["offset", "limit"])
     return _select_sql_from_parts(
-        selections=table.select_plan.selections,
-        joins=table.select_plan.joins,
-        needs_row_id=table.select_plan.needs_row_id,
-        row_id_strategy=table.select_plan.row_id_strategy,
-        internal_row_id=table.select_plan.internal_row_id,
+        plan=table.select_plan,
         dialect=dialect,
-        order_by=table.select_plan.order_by,
         limit=limit,
-        offset=offset,
+        source=source,
     )
 
 
@@ -302,18 +305,7 @@ def build_expected_count_sql(table: TableModel) -> str | None:
     plan = table.select_plan
     if plan is None or plan.expected_expression is None:
         return None
-    from_clause = "FROM read_parquet(?) AS src"
-    if plan.needs_row_id:
-        if plan.row_id_strategy == "file_row_number":
-            from_clause = (
-                f"FROM (SELECT *, file_row_number AS {_quote(plan.internal_row_id)} "
-                "FROM read_parquet(?, file_row_number=true)) AS src"
-            )
-        else:
-            from_clause = (
-                f"FROM (SELECT *, row_number() OVER () - 1 AS {_quote(plan.internal_row_id)} "
-                "FROM read_parquet(?)) AS src"
-            )
+    cte, from_clause = _source_parts(plan)
     for join in plan.expected_joins:
         expression = f"map_entries({join.expression})" if join.map_entries else join.expression
         from_clause += (
@@ -321,7 +313,7 @@ def build_expected_count_sql(table: TableModel) -> str | None:
             f"({_quote('value')}, {_quote('ordinality')})"
         )
     formula = _count_formula(plan.expected_expression, preserve_empty=plan.preserve_empty and plan.explode_expression is not None)
-    return f"SELECT COALESCE(SUM({formula}), 0) {from_clause}"
+    return cte + f"SELECT COALESCE(SUM({formula}), 0) {from_clause}"
 
 
 def query_table_preview(
@@ -336,18 +328,18 @@ def query_table_preview(
     if limit < 1 or limit > 200 or offset < 0:
         raise PBError("E_BAD_REQUEST", fields=["offset", "limit"])
     sql = build_select_sql(table, dialect=dialect, limit=limit, offset=offset)
-    params: list[Any] = [str(path), limit, offset]
+    params: list[Any] = [literal_path(path), limit, offset]
     count_sql, _ = build_count_sql(table)
     try:
         connection = connect_utc()
         try:
-            actual_rows = int(connection.execute(count_sql, [str(path)]).fetchone()[0])
+            actual_rows = int(connection.execute(count_sql, [literal_path(path)]).fetchone()[0])
             cursor = connection.execute(sql, params)
             columns = [item[0] for item in cursor.description or ()]
             rows = cursor.fetchall()
             expected_sql = build_expected_count_sql(table)
             expected_rows = (
-                int(connection.execute(expected_sql, [str(path)]).fetchone()[0]) if expected_sql else actual_rows
+                int(connection.execute(expected_sql, [literal_path(path)]).fetchone()[0]) if expected_sql else actual_rows
             )
         finally:
             connection.close()
@@ -424,6 +416,40 @@ def _row_id_column(name: str = "_PB_ROW_ID", string_strategy: str = "sample") ->
     )
 
 
+def _check_schema_names(schema: pa.Schema) -> None:
+    """Reject field names that DuckDB cannot tell apart.
+
+    Top-level columns are read by position, so only exact duplicates are a problem
+    there. DuckDB matches struct fields case-insensitively and renames case-only
+    duplicates (``x`` becomes ``x_1``), which would silently read or serialize the
+    wrong field, so nested case-only duplicates are rejected.
+    """
+    seen: set[str] = set()
+    for field in schema:
+        if field.name in seen:
+            raise PBError("E_SCHEMA_NAME_COLLISION", path=field.name)
+        seen.add(field.name)
+
+    def visit(data_type: pa.DataType, path: str) -> None:
+        if pa.types.is_struct(data_type):
+            folded: set[str] = set()
+            for child in data_type:
+                key = child.name.casefold()
+                child_path = f"{path}.{child.name}"
+                if key in folded:
+                    raise PBError("E_SCHEMA_NAME_COLLISION", path=child_path)
+                folded.add(key)
+                visit(child.type, child_path)
+        elif pa.types.is_list(data_type) or pa.types.is_large_list(data_type) or pa.types.is_fixed_size_list(data_type):
+            visit(data_type.value_type, f"{path}[]")
+        elif pa.types.is_map(data_type):
+            visit(data_type.key_type, f"{path}.key")
+            visit(data_type.item_type, f"{path}.value")
+
+    for field in schema:
+        visit(field.type, field.name)
+
+
 def plan_tables(
     schema: pa.Schema,
     *,
@@ -454,7 +480,15 @@ def plan_tables(
         raise PBError("E_BAD_REQUEST", fields=["child_max_depth"])
     if lengths is None:
         lengths = {}
+    _check_schema_names(schema)
     field_by_name = {field.name: field for field in schema}
+    # Expressions read top-level columns by positional alias, because DuckDB
+    # resolves names case-insensitively and would map both A and a to A.
+    source_columns = source_aliases(len(schema))
+    alias_by_name = {field.name: alias for field, alias in zip(schema, source_columns)}
+
+    def source_ref(name: str) -> str:
+        return f"src.{_quote(alias_by_name[name])}"
 
     if parent_key is not None:
         key_field = field_by_name.get(parent_key)
@@ -718,6 +752,7 @@ def plan_tables(
                 row_id_strategy=row_id_strategy,
                 expected_expression=f"map_entries({expression})" if kind == "map" else expression,
                 expected_joins=outer_joins,
+                source_columns=source_columns,
                 order_by=(
                     f"src.{_quote(internal_row_id)}",
                     *(expression for _, expression in parent_keys),
@@ -819,7 +854,7 @@ def plan_tables(
             string_strategy=string_strategy,
             extra_warnings=root_warnings,
         )
-        root_key_expression = f"src.{_quote(key_field.name)}"
+        root_key_expression = source_ref(key_field.name)
     elif mode == "child":
         generated_name = column_names.allocate("_PB_ROW_ID", root_warnings)
         root_key = _row_id_column(name=generated_name, string_strategy=string_strategy)
@@ -834,7 +869,7 @@ def plan_tables(
 
     if mode == "none":
         for field in schema:
-            expr = f"src.{_quote(field.name)}"
+            expr = source_ref(field.name)
             is_json = container_kind(field.type) is not None
             add_column(
                 root_columns, root_selections, data_type=field.type,
@@ -844,7 +879,7 @@ def plan_tables(
     elif mode == "child":
         root_key_added = False
         for field in schema:
-            expr = f"src.{_quote(field.name)}"
+            expr = source_ref(field.name)
             kind = container_kind(field.type)
             if key_field is not None and field.name == key_field.name and not root_key_added:
                 root_columns.append(root_key)
@@ -887,14 +922,14 @@ def plan_tables(
     else:  # explode
         assert selected is not None
         exploded_alias = "u0"
-        selected_expression = f"src.{_quote(selected.name)}"
+        selected_expression = source_ref(selected.name)
         exploded_join = JoinSpec(
             expression=selected_expression,
             alias=exploded_alias,
             join_type="left" if preserve_empty else "cross",
         )
         for field in schema:
-            expr = f"src.{_quote(field.name)}"
+            expr = source_ref(field.name)
             if field.name == selected.name:
                 element_expr = f"{_quote(exploded_alias)}.{_quote('value')}"
                 value_type = selected.type.value_type
@@ -933,7 +968,7 @@ def plan_tables(
     if not root_columns:
         raise PBError("E_PARQUET_INVALID")
     plan_joins = (exploded_join,) if mode == "explode" else ()
-    expected_expression = f"src.{_quote(selected.name)}" if selected is not None else None
+    expected_expression = source_ref(selected.name) if selected is not None else None
     root = TableModel(
         name=table_name,
         columns=tuple(root_columns),
@@ -953,6 +988,7 @@ def plan_tables(
             expected_expression=expected_expression,
             explode_expression=expected_expression,
             preserve_empty=preserve_empty,
+            source_columns=source_columns,
             order_by=(f"src.{_quote(internal_row_id)}", f"{_quote('u0')}.{_quote('ordinality')}") if mode == "explode" else (),
         ),
     )

@@ -26,7 +26,7 @@ from app.core.db import (
     table_columns,
     table_exists,
 )
-from app.core.duckdb_utils import connect_utc
+from app.core.duckdb_utils import connect_utc, literal_path
 from app.core.ddl_mysql import generate_mysql_ddl
 from app.core.ddl_oracle import generate_oracle_ddl
 from app.core.ddl_postgres import generate_postgres_ddl
@@ -190,7 +190,7 @@ def _expected_rows(path: Path, table: TableModel, source_rows: int) -> int:
         return source_rows
     connection = connect_utc()
     try:
-        row = connection.execute(sql, [str(path)]).fetchone()
+        row = connection.execute(sql, [literal_path(path)]).fetchone()
         return int(row[0] or 0)
     except Exception:
         raise PBError("E_PARQUET_INVALID") from None
@@ -298,15 +298,9 @@ def _record_batch_rows(batch: Any, table: TableModel, dialect: str) -> list[tupl
 def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int):
     """Read plain tables in PyArrow batches and apply JSON transforms to each batch."""
     if table.mode == "none":
-        source_sql = "FROM read_parquet(?) AS src"
         batch_name = "__parqbridge_load_batch"
-        select_sql = build_select_sql(table, dialect=dialect)
-        query = select_sql.replace(
-            source_sql,
-            f'FROM "{batch_name}" AS src',
-        )
-        if query == select_sql:
-            raise PBError("E_PARQUET_INVALID")
+        # Batches hold every top-level column in file order, matching the plan's positional aliases.
+        query = build_select_sql(table, dialect=dialect, source=f'"{batch_name}"')
 
         def transform_batch(batch: Any):
             connection = connect_utc()
@@ -343,7 +337,6 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
         try:
             with pq.ParquetFile(path) as metadata_file:
                 row_group_count = metadata_file.metadata.num_row_groups
-            columns = [column.original_name for column in table.columns]
             memory_pool = pa.default_memory_pool()
             release_unused = getattr(memory_pool, "release_unused", None)
             for row_group_index in range(row_group_count):
@@ -354,7 +347,6 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
                     batches = parquet_file.iter_batches(
                         batch_size=batch_size,
                         row_groups=[row_group_index],
-                        columns=columns,
                         use_threads=False,
                     )
                     for batch in batches:
@@ -388,7 +380,7 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
     try:
         # Build a lazy relation before opening its Arrow reader. `execute()` first
         # materializes the query result and can retain the full table in DuckDB.
-        relation = connection.sql(build_select_sql(table, dialect=dialect), params=[str(path)])
+        relation = connection.sql(build_select_sql(table, dialect=dialect), params=[literal_path(path)])
         reader = relation.to_arrow_reader(batch_size)
         for batch in reader:
             yield batch

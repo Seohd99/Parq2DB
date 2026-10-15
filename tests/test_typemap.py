@@ -261,8 +261,9 @@ def test_full_measurement_uses_duckdb_projection_and_cache(tmp_path: Path, monke
     assert measured["comment"].characters == 1
     assert len(queries) == 1
     query, parameters = queries[0]
-    assert 'max(length("comment"))' in query
-    assert '"id"' not in query
+    # Columns are read by positional alias: "id" is __pb_src_0, "comment" is __pb_src_1.
+    assert 'max(length("__pb_src_1"))' in query
+    assert "max(length(\"__pb_src_0\"))" not in query and "octet_length(\"__pb_src_0\")" not in query
     assert "read_parquet(?)" in query
     assert parameters == [str(path)]
     cached = measure_string_lengths(path, schema, length_scan="full")

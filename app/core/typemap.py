@@ -712,7 +712,7 @@ def _measure_full_lengths_duckdb(
     import duckdb
     from concurrent.futures import ThreadPoolExecutor
 
-    from app.core.duckdb_utils import connect_utc
+    from app.core.duckdb_utils import alias_list, connect_utc, literal_path, source_aliases
 
     metadata = pq.read_metadata(path)
     total_rows = metadata.num_rows
@@ -727,8 +727,14 @@ def _measure_full_lengths_duckdb(
     if scalar_roots:
         expressions: list[str] = []
         output_paths: list[tuple[str, str]] = []
+        # Reference columns by positional alias; DuckDB matches names case-insensitively.
+        file_names = metadata.schema.to_arrow_schema().names
+        aliases = source_aliases(len(file_names))
+        alias_by_name: dict[str, str] = {}
+        for file_name, alias in zip(file_names, aliases):
+            alias_by_name.setdefault(file_name, alias)
         for name in scalar_roots:
-            quoted = _quote_duckdb_identifier(name)
+            quoted = _quote_duckdb_identifier(alias_by_name[name])
             data_type = fields[name].type
             if pa.types.is_string(data_type) or pa.types.is_large_string(data_type):
                 expressions.extend((
@@ -746,8 +752,8 @@ def _measure_full_lengths_duckdb(
             connection.execute("SET preserve_insertion_order=false")
             _raise_if_scan_cancelled(cancel_event)
             row = connection.execute(
-                f"SELECT {', '.join(expressions)} FROM read_parquet(?)",
-                [str(path)],
+                f"SELECT {', '.join(expressions)} FROM read_parquet(?) AS src{alias_list(aliases)}",
+                [literal_path(path)],
             ).fetchone()
             _raise_if_scan_cancelled(cancel_event)
             if row is not None:
