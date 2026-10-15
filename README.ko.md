@@ -368,7 +368,6 @@ UPDATE_GOLDEN=1 .venv/bin/python -m pytest -q tests/test_ddl.py
 
 ## 알려진 제한
 
-- 이번 버전에서는 실제 Oracle·MySQL·PostgreSQL 통합 테스트를 실행하지 않았습니다. DB 적재는 전용 테스트 DB에서 추가 검증이 필요합니다.
 - 이름이 대소문자만 다른 struct 필드는 미리보기와 계획 생성에서 거부됩니다. MySQL은 인용 이름 정책에서도 대소문자만 다른 컬럼명을 거부합니다.
 - map 키를 wide 컬럼으로 펼치는 기능은 후속 과제입니다. 현재는 `none`의 JSON 또는 `child`의 map 자식 테이블을 사용합니다.
 - `length_scan=sample`은 추정치이며 파일 전체 최댓값을 보장하지 않습니다. 표본 밖 긴 값이 의심되거나 적재 오류가 나면 `length_scan=full`로 다시 계획하세요. 전체 스캔의 정확한 최대 폭도 다른 파일의 `append` 값까지 보장하지는 않습니다.

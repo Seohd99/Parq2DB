@@ -368,7 +368,6 @@ The script outputs JSON with the selected file's size, row count and number of r
 
 ## Known limitations
 
-- Real Oracle, MySQL, and PostgreSQL integration tests have not been run for this revision; database loading still needs validation against dedicated test databases.
 - Struct fields whose names differ only by case are rejected in previews and plans. MySQL also rejects case-only column-name collisions under the quoted naming policy.
 - Expanding map keys into wide columns is a follow-up task. For now, use JSON in `none` mode or a map child table in `child` mode.
 - `length_scan=sample` is an estimate and does not guarantee the maximum value in the whole file. If you suspect long values were missed or encounter a load error, plan again with `length_scan=full`. The exact maximum measured by a full scan does not guarantee widths for values appended from other files.
