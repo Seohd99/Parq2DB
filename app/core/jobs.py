@@ -449,6 +449,7 @@ def execute_load(
                 "committed_rows": committed_rows,
                 "partial_commits_kept": False,
                 "preparation_changes_applied": preparation_changes_applied,
+                "cancelled": cancelled,
             }
         for table in tables:
             if cancel_event.is_set():

@@ -432,6 +432,26 @@ def test_job_manager_prevents_overlapping_table_jobs(monkeypatch, tmp_path):
         manager.shutdown()
 
 
+def test_cancel_during_preparation_reports_cancelled(monkeypatch, flat_parquet_path):
+    connection = FakeConnection()
+    tables = planned_table(flat_parquet_path)
+    cancel_event = threading.Event()
+    cancel_event.set()
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    result = execute_load(
+        path=flat_parquet_path,
+        tables=tables,
+        profile=online_profile(),
+        source_rows=3,
+        batch_size=2,
+        existing_policy="fail",
+        cancel_event=cancel_event,
+        progress=lambda *_: None,
+    )
+    assert result["cancelled"] is True
+    assert result["committed_rows"] == 0
+
+
 def _generated_key_tables(tmp_path):
     import pyarrow as pa
 
