@@ -2,6 +2,15 @@ English | [한국어](README.ko.md)
 
 # ParqBridge
 
+## When should you use ParqBridge?
+
+- Convert Parquet files into Oracle, PostgreSQL, or MySQL tables
+- Generate SQL `CREATE TABLE` statements without manually mapping Parquet types
+- Load nested Parquet data into relational tables
+- Inspect Parquet files locally without a separate data platform
+
+## Overview
+
 ParqBridge is a local web tool for inspecting the schema and data in one Parquet file and generating DDL for Oracle (12.2+, designed around 19c), MySQL 8+, and PostgreSQL 16+. When a database profile is configured, you can also test the connection, create a table, load rows in batches, and compare row counts after loading. It runs on FastAPI and vanilla JavaScript with no build chain. The web interface follows the system light/dark preference and includes a saved theme toggle.
 
 For the current architecture and design constraints, see [Design](docs/DESIGN.md).

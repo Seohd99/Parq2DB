@@ -2,6 +2,15 @@
 
 # ParqBridge
 
+## 언제 사용하나요?
+
+- Parquet 파일을 Oracle, PostgreSQL, MySQL 테이블로 옮기고 싶을 때
+- Parquet 타입을 직접 매핑하지 않고 SQL `CREATE TABLE` 문을 만들고 싶을 때
+- 중첩 구조(struct/list/map)가 있는 Parquet 데이터를 관계형 테이블에 적재하고 싶을 때
+- 별도 데이터 플랫폼 없이 로컬에서 Parquet 파일을 살펴보고 싶을 때
+
+## 개요
+
 ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Oracle(12.2+, 19c 기준 설계), MySQL 8+, PostgreSQL 16+용 DDL을 만드는 도구입니다. DB 설정이 있으면 연결 테스트, 테이블 생성, 배치 INSERT와 적재 후 행 수 대조까지 할 수 있습니다. FastAPI와 빌드 체인 없는 바닐라 JavaScript로 동작합니다. 웹 화면은 시스템 라이트/다크 설정을 따르며 테마를 전환하고 저장할 수 있습니다.
 
 현재 아키텍처와 설계 제약은 [설계 문서](docs/DESIGN.md)를 참고하세요.
