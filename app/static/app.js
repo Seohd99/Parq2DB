@@ -193,6 +193,17 @@ function formatBytes(value) {
   return `${new Intl.NumberFormat(I18N.lang, { maximumFractionDigits: 2 }).format(n)} ${units[index]}`;
 }
 
+function renderUploadFileStatus() {
+  const input = document.getElementById("upload-file");
+  const status = document.getElementById("upload-file-status");
+  if (!input || !status) return;
+  const file = input.files?.[0];
+  status.textContent = file
+    ? t("files.selected_upload_file", { name: file.name, size: formatBytes(file.size) })
+    : t("files.no_file_selected");
+  status.classList.toggle("has-file", Boolean(file));
+}
+
 function formatValue(value) {
   if (value === null || value === undefined) return t("inspect.unavailable");
   if (typeof value === "object") return JSON.stringify(value);
@@ -597,6 +608,7 @@ function renderPreview() {
 }
 
 function render() {
+  renderUploadFileStatus();
   renderStatus();
   renderBrowser();
   renderFeedback();
@@ -803,9 +815,39 @@ async function init() {
       try {
         const result = await api("/api/files/upload", { method: "POST", body: form });
         input.value = "";
+        renderUploadFileStatus();
         await loadSelection(result.file);
       } catch (error) { showError(error); }
     });
+  });
+  const uploadInput = document.getElementById("upload-file");
+  const dropzone = document.getElementById("upload-dropzone");
+  uploadInput.addEventListener("change", () => {
+    state.error = null;
+    renderUploadFileStatus();
+    renderFeedback();
+  });
+  dropzone.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    dropzone.classList.add("is-dragover");
+  });
+  dropzone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    dropzone.classList.add("is-dragover");
+  });
+  dropzone.addEventListener("dragleave", (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) dropzone.classList.remove("is-dragover");
+  });
+  dropzone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("is-dragover");
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    uploadInput.files = transfer.files;
+    uploadInput.dispatchEvent(new Event("change", { bubbles: true }));
   });
   document.getElementById("delete-upload").addEventListener("click", async (event) => {
     if (!state.file || state.file.source !== "upload") return;

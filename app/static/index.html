@@ -46,8 +46,17 @@
       </div>
       <div id="upload-panel" class="panel">
         <form id="upload-form">
-          <label for="upload-file" data-i18n="files.choose_file">Parquet file</label>
-          <input id="upload-file" name="file" type="file" accept=".parquet" required>
+          <div id="upload-dropzone" class="upload-dropzone">
+            <input id="upload-file" class="visually-hidden-file" name="file" type="file" accept=".parquet" required aria-describedby="upload-file-hint upload-file-status">
+            <div class="upload-dropzone-content">
+              <span class="upload-dropzone-icon" aria-hidden="true">⇧</span>
+              <p id="upload-file-hint" class="upload-file-hint" data-i18n="files.drop_hint">Drag and drop a Parquet file here, or choose one below.</p>
+              <div class="upload-file-control">
+                <label class="file-input-button" for="upload-file" data-i18n="files.choose_file">Choose file</label>
+                <span id="upload-file-status" class="upload-file-status" role="status" aria-live="polite" data-i18n="files.no_file_selected">No file selected</span>
+              </div>
+            </div>
+          </div>
           <button class="button-primary" type="submit" data-i18n="files.upload">Upload and open</button>
         </form>
       </div>

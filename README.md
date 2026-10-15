@@ -227,7 +227,7 @@ As an optional step, you can install the editable console script. After installi
 
 ## Usage flow
 
-1. Choose a `.parquet` file in the Upload tab, or browse an allowed folder in the Local path tab.
+1. Choose or drop a `.parquet` file in the Upload tab, or browse an allowed folder in the Local path tab.
 2. Review the metadata, column statistics, schema, flat/nested classification, and paged row preview.
 3. Choose the flattening mode, target database, table name, and column options to generate DDL and preview the transformed data.
 4. Copy the DDL or download it as a `.sql` file.
