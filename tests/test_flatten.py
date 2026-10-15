@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pyarrow.parquet as pq
+import pytest
+
+from app.core.errors import PBError
+from app.core.flatten import (
+    build_select_sql,
+    plan_tables,
+    query_table_preview,
+    sample_parent_key_duplicates,
+    validate_table_name,
+)
+from app.core.reserved import reserved_words
+from app.core.typemap import measure_string_lengths
+
+
+def plan(path: Path, **options):
+    with pq.ParquetFile(path) as parquet:
+        schema = parquet.schema_arrow
+    lengths = measure_string_lengths(
+        path,
+        schema,
+        strategy=options.get("string_strategy", "sample"),
+        length_scan=options.get("length_scan", "full"),
+    )
+    return plan_tables(schema, table_name="PB_TEST_DATA", lengths=lengths, **options)
+
+
+def test_none_mode_keeps_nested_columns_as_json(parquet_path: Path):
+    models = plan(parquet_path, mode="none", dialect="oracle")
+    assert len(models) == 1
+    nested = {column.name: column for column in models[0].columns if column.is_json}
+    assert {"LIST_INT", "LIST_STRUCT", "STRUCT_VALUE", "MAP_VALUE", "NESTED_LIST"} <= set(nested)
+    result = query_table_preview(parquet_path, models[0], limit=20)
+    assert result["actual_rows"] == 5
+    assert result["expected_rows"] == 5
+    assert isinstance(result["rows"][0]["LIST_INT"], list)
+
+
+def test_child_mode_stream_plans_and_counts_all_child_rows(parquet_path: Path):
+    assert not sample_parent_key_duplicates(parquet_path, "id")
+    models = plan(parquet_path, mode="child", dialect="oracle", parent_key="id", parent_key_unique=True)
+    assert [model.name for model in models] == [
+        "PB_TEST_DATA", "PB_TEST_DATA_LIST_INT", "PB_TEST_DATA_LIST_DOUBLE",
+        "PB_TEST_DATA_LIST_STRUCT", "PB_TEST_DATA_MAP_VALUE", "PB_TEST_DATA_NESTED_LIST",
+        "PB_TEST_DATA_NESTED_LIST_ITEM",
+    ]
+    root = models[0]
+    assert root.parent_key == ("ID",)
+    assert "PB_TEST_DATA_LIST_INT" in root.child_tables
+    for child in models[1:]:
+        result = query_table_preview(parquet_path, child, limit=50)
+        assert result["actual_rows"] == result["expected_rows"]
+    nested = next(model for model in models if model.name.endswith("NESTED_LIST_ITEM"))
+    assert nested.parent_table == "PB_TEST_DATA_NESTED_LIST"
+    assert "PARENT_ORD" in [column.name for column in nested.columns]
+
+
+def test_generated_parent_row_id_is_zero_based_and_streaming(parquet_path: Path):
+    models = plan(parquet_path, mode="child", dialect="oracle")
+    root = models[0]
+    assert root.columns[0].name == "_PB_ROW_ID"
+    assert root.select_plan.row_id_strategy == "file_row_number"
+    assert "file_row_number=true" in build_select_sql(root)
+    assert "row_number() OVER ()" not in build_select_sql(root)
+    preview = query_table_preview(parquet_path, root, limit=5)
+    assert [row["_PB_ROW_ID"] for row in preview["rows"]] == [0, 1, 2, 3, 4]
+
+
+def test_generated_id_handles_physical_file_row_number_column(tmp_path: Path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path = tmp_path / "row-number-collision.parquet"
+    schema = pa.schema([
+        pa.field("file_row_number", pa.int32()),
+        pa.field("items", pa.list_(pa.int32())),
+    ])
+    pq.write_table(pa.Table.from_arrays([
+        pa.array([90, 91], type=pa.int32()),
+        pa.array([[1], [2, 3]], type=schema.field("items").type),
+    ], schema=schema), path)
+    models = plan(path, mode="child", dialect="oracle")
+    root = models[0]
+    assert root.select_plan.row_id_strategy == "window"
+    assert "row_number() OVER ()" in build_select_sql(root)
+    preview = query_table_preview(path, root, limit=5)
+    assert [row["_PB_ROW_ID"] for row in preview["rows"]] == [0, 1]
+
+
+def test_child_depth_limit_keeps_overflow_as_json(parquet_path: Path):
+    models = plan(
+        parquet_path,
+        mode="child",
+        dialect="oracle",
+        parent_key="id",
+        parent_key_unique=True,
+        child_max_depth=1,
+    )
+    assert not any(model.name.endswith("NESTED_LIST_ITEM") for model in models)
+    nested = next(model for model in models if model.name.endswith("NESTED_LIST"))
+    value = next(column for column in nested.columns if column.name == "VALUE")
+    assert value.is_json
+
+
+@pytest.mark.parametrize(("preserve_empty", "expected"), [(True, 7), (False, 5)])
+def test_explode_expected_formula_matches_duckdb(parquet_path: Path, preserve_empty: bool, expected: int):
+    models = plan(
+        parquet_path,
+        mode="explode",
+        dialect="mysql",
+        explode_column="list_int",
+        preserve_empty=preserve_empty,
+    )
+    result = query_table_preview(parquet_path, models[0], dialect="mysql", limit=50)
+    assert result["expected_rows"] == expected
+    assert result["actual_rows"] == expected
+    if preserve_empty:
+        assert sum(row["LIST_INT"] is None for row in result["rows"]) == 2
+
+
+def test_identifiers_collisions_reserved_words_and_quoted_names():
+    import pyarrow as pa
+
+    schema = pa.schema([
+        pa.field("level", pa.int32()), pa.field("date", pa.string()),
+        pa.field("comment", pa.string()), pa.field("a-b", pa.int8()), pa.field("a b", pa.int8()),
+    ])
+    models = plan_tables(schema, table_name="GOOD_NAME", mode="none", dialect="oracle")
+    names = [column.name for column in models[0].columns]
+    assert names == ["LEVEL_2", "DATE_2", "COMMENT_2", "A_B", "A_B_2"]
+    codes = {item["code"] for item in models[0].warnings}
+    assert "W_RESERVED_IDENTIFIER" in codes
+    assert "W_IDENTIFIER_COLLISION" in codes
+
+    quoted = plan_tables(schema, table_name="GOOD_NAME", mode="none", dialect="oracle", column_policy="quoted")
+    assert [column.name for column in quoted[0].columns][:3] == ["level", "date", "comment"]
+    assert "ONLINE" in reserved_words("oracle", lambda _: ["ONLINE"])
+    online_override = plan_tables(
+        pa.schema([pa.field("custom_reserved", pa.int32())]),
+        table_name="GOOD_NAME",
+        mode="none",
+        dialect="oracle",
+        reserved_word_provider=lambda _: ["CUSTOM_RESERVED"],
+    )
+    assert online_override[0].columns[0].name == "CUSTOM_RESERVED_2"
+
+
+def test_table_name_validation_returns_error_code():
+    with pytest.raises(PBError) as error:
+        validate_table_name("bad-name", "oracle")
+    assert error.value.code == "E_TABLE_NAME_INVALID"
+    with pytest.raises(PBError) as error:
+        validate_table_name("A" * 65, "mysql")
+    assert error.value.code == "E_TABLE_NAME_INVALID"

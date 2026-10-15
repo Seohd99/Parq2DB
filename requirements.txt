@@ -1,0 +1,15 @@
+# ParqBridge dependencies (Python 3.14; project-local .venv)
+# Versions are pinned for repeatable installs; document intentional changes in docs/DESIGN.md.
+fastapi==0.143.0
+uvicorn==0.54.0
+python-multipart==0.0.32
+pyarrow==26.0.0
+duckdb==1.5.6
+oracledb==26.0.1
+pymysql==1.2.3
+psycopg[binary]==3.3.6
+tzdata==2026.5  # Needed on Windows for _json_safe UTC timestamp normalization.
+
+# Tests
+pytest==9.1.1
+httpx==0.28.1          # fastapi.testclient.TestClient가 요구한다

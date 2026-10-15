@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 실설정과 비밀값: 커밋하는 설정은 config/parqbridge.example.toml 뿐이다
+config/parqbridge.toml
+config/parqbridge.local.toml
+.env
+
+# 작업 공간(업로드 파일 등)
+workspace/
+
+# 테스트가 코드로 만드는 fixture
+tests/fixtures/*.parquet
+
+# 편집기/OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Local-only instructions and working notes
+prompt.*
+AGENTS.local.md
+DECISIONS.local.md
+docs/reports/
