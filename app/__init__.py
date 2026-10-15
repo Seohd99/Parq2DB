@@ -1,3 +1,3 @@
-"""ParqBridge: Parquet 조회, Oracle/MySQL DDL 생성과 적재를 위한 로컬 웹 도구."""
+"""ParqBridge: A local web tool for inspecting Parquet and generating DDL or loading data."""
 
 __version__ = "0.1.0"

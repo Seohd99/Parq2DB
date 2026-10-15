@@ -24,7 +24,7 @@ def test_metadata_statistics_and_json_safe_values(parquet_path):
     assert stats["id"]["min"] == 1
     assert stats["id"]["max"] == 5
     assert stats["comment"]["null_count"] == 1
-    # 긴 문자열이 들어 있는 row group은 min/max를 기록하지 않을 수 있으므로 없음으로 보인다.
+    # A row group with long strings may omit min/max statistics, so they appear as None.
     assert stats["comment"]["min"] is None
     assert stats["comment"]["max"] is None
     assert stats["level"]["min"] == "debug"

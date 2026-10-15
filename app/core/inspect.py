@@ -1,4 +1,4 @@
-"""Parquet 메타데이터, 통계, 스키마와 페이지 미리보기를 제공한다."""
+"""Provide Parquet metadata, statistics, schema, and paged previews."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _container_kind(data_type: pa.DataType) -> str | None:
 
 
 def _nested_depth(data_type: pa.DataType) -> int:
-    """중첩 컨테이너를 한 단계로 세어 가장 깊은 경로를 반환한다."""
+    """Return the deepest path, counting each nested container as one level."""
     kind = _container_kind(data_type)
     if kind is None:
         return 0
@@ -46,9 +46,9 @@ def _nested_depth(data_type: pa.DataType) -> int:
 
 
 def classify_schema(schema: pa.Schema) -> dict[str, Any]:
-    """스키마의 flat/nested 여부와 중첩 컬럼별 최대 컨테이너 깊이를 계산한다.
+    """Classify the schema as flat or nested and find each nested column's maximum container depth.
 
-    P2에서 재사용할 수 있도록 파일이나 DB 상태를 읽지 않는 순수 함수다.
+    This is a pure function and does not read file contents or database state.
     """
     nested_columns = [
         {"name": field.name, "kind": _container_kind(field.type), "max_depth": _nested_depth(field.type)}
@@ -59,7 +59,7 @@ def classify_schema(schema: pa.Schema) -> dict[str, Any]:
 
 
 def schema_tree(schema: pa.Schema) -> dict[str, Any]:
-    """Arrow 스키마를 map kind를 보존한 재귀 트리로 변환한다."""
+    """Convert an Arrow schema to a recursive tree that preserves map kinds."""
     return {"fields": [_field_tree(field) for field in schema]}
 
 
@@ -87,7 +87,7 @@ def _field_tree(field: pa.Field) -> dict[str, Any]:
 
 
 def _json_safe(value: Any) -> Any:
-    """Arrow/DB 값을 JSON 응답에 안전한 기본 타입으로 바꾼다."""
+    """Convert Arrow or database values to JSON-safe built-in types."""
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
@@ -111,7 +111,7 @@ def _json_safe(value: Any) -> Any:
 
 
 def _stat_value(stats: Any, name: str, data_type: pa.DataType | None) -> Any:
-    """통계의 변환 accessor가 timezone DB를 요구하면 원시 epoch를 UTC로 바꾼다."""
+    """Convert the raw epoch to UTC if a statistics accessor requires a timezone database."""
     try:
         return getattr(stats, name)
     except Exception:
@@ -132,7 +132,7 @@ def _parquet_file(path: Path) -> pq.ParquetFile:
 
 
 def inspect_parquet(path: Path) -> dict[str, Any]:
-    """푸터 기반 메타데이터, 통계, 스키마 트리와 유형 판별 결과를 반환한다."""
+    """Return footer-based metadata, statistics, a schema tree, and type classifications."""
     with _parquet_file(path) as parquet:
         return _inspect_parquet_handle(path, parquet)
 
@@ -212,7 +212,7 @@ def _inspect_parquet_handle(path: Path, parquet: pq.ParquetFile) -> dict[str, An
 
 
 def preview_parquet(path: Path, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE) -> dict[str, Any]:
-    """DuckDB read_parquet로 필요한 페이지 한 장만 조회한다."""
+    """Use DuckDB read_parquet to fetch only the requested page."""
     if offset < 0 or limit < 1 or limit > MAX_PAGE_SIZE:
         raise PBError("E_BAD_REQUEST", fields=["offset" if offset < 0 else "limit"])
     with _parquet_file(path) as parquet:

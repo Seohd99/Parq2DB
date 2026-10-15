@@ -1,8 +1,8 @@
-"""FastAPI 앱: API 라우트와 정적 파일 서빙.
+"""FastAPI app: API routes and static-file serving.
 
-기동:
-  python -m app                 # config 의 host/port 사용(기본 127.0.0.1:8765)
-  uvicorn app.main:app          # uvicorn 기본값 127.0.0.1:8000
+Run with:
+  python -m app                 # Uses host and port from config (default 127.0.0.1:8765)
+  uvicorn app.main:app          # Uses Uvicorn's default 127.0.0.1:8000
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 def _config_from_env() -> AppConfig:
-    # 테스트나 다른 설정 파일로 띄울 때 PARQBRIDGE_CONFIG 로 경로를 바꿀 수 있다.
+    # Set PARQBRIDGE_CONFIG to use a different config file, such as in tests.
     p = os.environ.get("PARQBRIDGE_CONFIG")
     return load_config(Path(p) if p else None)
 
@@ -145,7 +145,7 @@ def get_db_profile(request: Request, dialect: str):
 
 
 async def _read_streaming_upload(request: Request, registry: FileRegistry, max_bytes: int) -> SelectedFile:
-    """multipart 본문을 조각 단위로 파싱해 파일 파트만 업로드 파일에 기록한다."""
+    """Parse the multipart body in chunks and write only the file part to the upload."""
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
@@ -273,7 +273,7 @@ class LocalFileSelection(BaseModel):
 
 
 class DdlOptions(BaseModel):
-    """DDL 생성과 펼치기 미리보기 옵션."""
+    """Options for DDL generation and flattening previews."""
 
     dialect: str = "oracle"
     mode: str = "none"
@@ -290,7 +290,7 @@ class DdlOptions(BaseModel):
 
 
 class LoadOptions(DdlOptions):
-    """CREATE/INSERT 작업과 기존 테이블 정책."""
+    """Options for CREATE/INSERT operations and existing-table policies."""
 
     existing_policy: str = "fail"
     confirm_table_name: str | None = None
@@ -298,13 +298,13 @@ class LoadOptions(DdlOptions):
 
 @app.get("/api/status")
 def status(request: Request) -> dict:
-    """버전, 서버 제한, DB 프로필의 온라인/오프라인 상태(비밀번호 제외)."""
+    """Return the version, server limits, and database profile status without passwords."""
     return {"version": __version__, **get_config(request).public()}
 
 
 @app.post("/api/db/{dialect}/test")
 def test_db_connection(dialect: str, request: Request) -> dict:
-    """설정된 프로필로 접속하고 서버 버전과 공개 대상 정보만 반환한다."""
+    """Connect with the configured profile and return only the server version and public target details."""
     profile = get_db_profile(request, dialect)
     return {"connected": True, **test_connection(profile)}
 
@@ -320,7 +320,7 @@ app.mount("/i18n", StaticFiles(directory=I18N_DIR), name="i18n")
 
 @app.get("/api/files/browse")
 def browse_files(request: Request, path: str | None = None) -> dict:
-    """허용 루트의 폴더와 Parquet 파일만 나열한다."""
+    """List only folders and Parquet files under allowed roots."""
     roots = get_config(request).server.allowed_roots
     if path is None:
         return {"roots": [str(root) for root in roots], "current": None, "parent": None, "entries": []}
@@ -330,7 +330,7 @@ def browse_files(request: Request, path: str | None = None) -> dict:
 
 @app.post("/api/files/local")
 def select_local_file(body: LocalFileSelection, request: Request) -> dict:
-    """허용된 로컬 Parquet 경로를 읽기 전용 file_id로 등록한다."""
+    """Register an allowed local Parquet path as a read-only file_id."""
     selected = get_files(request).select_local(body.path, get_config(request).server.allowed_roots)
     scan = get_string_scans(request).start(selected.file_id, selected.path)
     return {
@@ -346,7 +346,7 @@ def select_local_file(body: LocalFileSelection, request: Request) -> dict:
 
 @app.post("/api/files/upload")
 async def upload_file(request: Request) -> dict:
-    """multipart 본문을 스트리밍하면서 파일 크기와 Parquet 매직을 검사한다."""
+    """Stream the multipart body while checking the file size and Parquet magic bytes."""
     selected = await _read_streaming_upload(
         request,
         get_files(request),
@@ -366,7 +366,7 @@ async def upload_file(request: Request) -> dict:
 
 @app.delete("/api/files/{file_id}")
 def delete_file(file_id: str, request: Request) -> dict:
-    """업로드 저장소에 등록된 파일만 삭제한다."""
+    """Delete only files registered in the upload store."""
     selected = get_files(request).get(file_id)
     if selected.source != "upload":
         raise PBError("E_PATH_NOT_ALLOWED")
@@ -403,7 +403,7 @@ def preview_file(
     offset: int = 0,
     limit: int = DEFAULT_PAGE_SIZE,
 ) -> dict:
-    """미리보기는 요청된 페이지 크기만 DuckDB에서 읽는다."""
+    """Read only the requested page from DuckDB for the preview."""
     if limit > MAX_PAGE_SIZE:
         raise PBError("E_BAD_REQUEST", fields=["limit"])
     selected = get_files(request).get(file_id)
@@ -628,7 +628,7 @@ def _build_ddl_result(
 
 @app.post("/api/files/{file_id}/ddl")
 def create_ddl_plan(file_id: str, options: DdlOptions, request: Request) -> dict:
-    """DDL·이름 대응표·테이블별 펼치기 미리보기를 계산한다."""
+    """Build DDL, a name-mapping table, and per-table flattening previews."""
     selected = get_files(request).get(file_id)
     scan = _get_or_start_length_scan(file_id, selected, request)
     is_exact = options.length_scan == "full" and scan["status"] == "ready"
@@ -647,7 +647,7 @@ def create_ddl_plan(file_id: str, options: DdlOptions, request: Request) -> dict
 
 @app.post("/api/files/{file_id}/ddl/download")
 def download_ddl(file_id: str, options: DdlOptions, request: Request) -> Response:
-    """선택한 옵션으로 생성한 SQL을 다운로드한다."""
+    """Download SQL generated with the selected options."""
     selected = get_files(request).get(file_id)
     scan = _get_or_start_length_scan(file_id, selected, request)
     is_exact = options.length_scan == "full" and scan["status"] == "ready"

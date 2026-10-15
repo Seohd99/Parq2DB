@@ -1,11 +1,11 @@
-"""설정 로드와 오프라인 모드 판정.
+"""Load settings and determine which databases are offline.
 
-읽는 순서:
-  1. config/parqbridge.toml        (없으면 전부 기본값, DB는 모두 오프라인)
-  2. config/parqbridge.local.toml  (있으면 1 위에 덮어쓴다. 비밀번호를 둘 수 있는 유일한 파일)
+Read order:
+  1. config/parqbridge.toml (if absent, use defaults and keep all databases offline)
+  2. config/parqbridge.local.toml (if present, overrides (1); the only config file that may contain a password)
 
-DB 프로필은 [db.<kind>] 섹션이 있고, 필수 키가 다 있고, 비밀번호를 얻을 수 있을 때만
-온라인이다. 그렇지 않으면 오프라인 사유를 에러 코드로 남긴다.
+A database profile is online only when [db.<kind>] exists, includes all required keys,
+and a password is available. Otherwise, an offline reason is recorded as an error code.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ DEFAULT_CONFIG_PATH = CONFIG_DIR / "parqbridge.toml"
 DEFAULT_LOCAL_PATH = CONFIG_DIR / "parqbridge.local.toml"
 DEFAULT_UPLOAD_DIR = PROJECT_ROOT / "workspace" / "uploads"
 
-# 종류별 필수 키. target_key 는 접속 대상 표시(host:port/<target>)에 쓴다.
+# Required keys by database kind. target_key is used in the displayed connection target (host:port/<target>).
 DB_KINDS: dict[str, dict[str, Any]] = {
     "oracle": {"required": ("host", "port", "service_name", "user"), "target_key": "service_name"},
     "mysql": {"required": ("host", "port", "database", "user"), "target_key": "database"},
@@ -77,7 +77,7 @@ class DbProfile:
         return self.offline_reason is None
 
     def public(self) -> dict[str, Any]:
-        """API/화면에 내보내도 되는 정보. 비밀번호는 절대 포함하지 않는다."""
+        """Return information safe to expose in the API or UI, without the password."""
         out: dict[str, Any] = {"kind": self.kind, "online": self.online}
         if self.host:
             out["target"] = f"{self.host}:{self.port}/{self.target}"
@@ -133,7 +133,7 @@ def _deep_merge(base: dict[str, Any], over: Mapping[str, Any]) -> dict[str, Any]
 
 
 def _expect(section: str, key: str, value: Any, typ: type, file: str) -> Any:
-    # bool 은 int 의 하위 클래스라 따로 막는다.
+    # bool is a subclass of int, so reject it separately.
     if not isinstance(value, typ) or (typ is int and isinstance(value, bool)):
         raise PBError("E_CONFIG_INVALID", file=file, key=f"{section}.{key}", expected=typ.__name__)
     return value
@@ -200,7 +200,7 @@ def _parse_db(kind: str, raw: Mapping[str, Any] | None, env: Mapping[str, str]) 
     if base["port"] <= 0:
         return DbProfile(**base, offline_reason="E_DB_CONFIG_INVALID", offline_params={"key": "port"})
 
-    password = raw.get("password")  # local.toml 에서만 온다(_load 참조)
+    password = raw.get("password")  # The main config's password is removed before this function is called.
     env_name = raw.get("password_env")
     if not password and isinstance(env_name, str) and env_name:
         password = env.get(env_name) or None
@@ -218,7 +218,7 @@ def load_config(
     local_path: Path | None = None,
     env: Mapping[str, str] | None = None,
 ) -> AppConfig:
-    """설정을 읽어 AppConfig 를 만든다. 파일이 없으면 기본값(전부 오프라인)이다."""
+    """Load settings into AppConfig; if the files are absent, use defaults and keep all databases offline."""
     path = path or DEFAULT_CONFIG_PATH
     local_path = local_path or DEFAULT_LOCAL_PATH
     env = os.environ if env is None else env
@@ -229,7 +229,7 @@ def load_config(
 
     if path.is_file():
         main = _read_toml(path)
-        # 커밋될 수 있는 주 설정 파일의 password 는 무시한다.
+        # Ignore passwords in the main config file because it may be committed.
         for kind, sec in (main.get("db") or {}).items():
             if isinstance(sec, dict) and "password" in sec:
                 sec.pop("password")

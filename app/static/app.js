@@ -1,6 +1,6 @@
 "use strict";
 
-// API는 에러 코드와 파라미터만 돌려준다. 문구는 여기서 번역한다.
+// The API returns error codes and parameters; translate their messages here.
 const I18N = { lang: "en", dict: {} };
 const LANG_KEY = "parqbridge.lang";
 const state = {
@@ -62,7 +62,7 @@ async function setLang(lang, save = true) {
   I18N.lang = lang;
   document.documentElement.lang = lang;
   if (save) {
-    try { localStorage.setItem(LANG_KEY, lang); } catch (_) { /* 저장 불가 환경 */ }
+    try { localStorage.setItem(LANG_KEY, lang); } catch (_) { /* Storage may be unavailable. */ }
   }
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);

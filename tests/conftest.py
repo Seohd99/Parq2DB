@@ -1,4 +1,4 @@
-"""테스트용 Parquet 파일은 실행 중 임시 경로에 생성한다."""
+"""Create test Parquet files in temporary locations at runtime."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _write_parquet(path: Path, table: pa.Table, row_group_size: int = 2) -> Path
 
 @pytest.fixture
 def parquet_path(tmp_path: Path) -> Path:
-    """flat과 list/struct/map 및 다양한 Arrow 값을 포함한 3개 row group 파일."""
+    """Create a three-row-group file with flat, list/struct/map, and varied Arrow values."""
     list_struct_type = pa.list_(pa.struct([
         pa.field("name", pa.string()),
         pa.field("score", pa.int64()),

@@ -1,14 +1,15 @@
-"""에러 코드 정의.
+"""Define application error and warning codes.
 
-API는 사람이 읽는 문구 대신 에러 코드와 파라미터를 돌려준다. 문구는 프런트엔드가
-app/i18n/<lang>.json 의 "error.<CODE>" 키로 번역한다. 경고(W_*)도 같은 형식을 쓴다.
+The API returns error codes and parameters instead of human-readable messages. The
+frontend translates them using the "error.<CODE>" keys in app/i18n/<lang>.json.
+Warnings (W_*) use the same format.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# 코드 -> 기본 HTTP 상태. 새 코드를 추가하면 ko.json/en.json 에도 문구를 추가한다.
+# Error code to default HTTP status. Add a message to ko.json and en.json for each new code.
 ERROR_STATUS: dict[str, int] = {
     "E_INTERNAL": 500,
     "E_BAD_REQUEST": 400,
@@ -46,7 +47,7 @@ ERROR_STATUS: dict[str, int] = {
     "E_HTTP_ERROR": 500,
 }
 
-# 경고 코드(응답의 warnings 배열에 실린다).
+# Warning codes included in the response's warnings array.
 WARNING_CODES: frozenset[str] = frozenset(
     {
         "W_BIND_ALL_INTERFACES",
@@ -70,7 +71,7 @@ WARNING_CODES: frozenset[str] = frozenset(
 
 
 class PBError(Exception):
-    """ParqBridge 도메인 에러. code 는 ERROR_STATUS 의 키다."""
+    """Represent a ParqBridge domain error; code is a key in ERROR_STATUS."""
 
     def __init__(self, code: str, status: int | None = None, **params: Any) -> None:
         if code not in ERROR_STATUS:
@@ -88,7 +89,7 @@ class PBError(Exception):
 
 
 def warning(code: str, **params: Any) -> dict[str, Any]:
-    """경고 항목 하나를 만든다."""
+    """Create one warning entry."""
     if code not in WARNING_CODES:
         raise ValueError(f"unknown warning code: {code}")
     return {"code": code, "params": params}

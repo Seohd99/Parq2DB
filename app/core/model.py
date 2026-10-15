@@ -1,4 +1,4 @@
-"""DDL과 조회 계획이 공유하는 순수 데이터 모델."""
+"""Pure data models shared by DDL generation and query planning."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ColumnModel:
-    """원본 컬럼과 대상 DB 컬럼의 대응 정보를 보관한다."""
+    """Store the mapping between a source column and its target database column."""
 
     original_name: str
     original_path: str
@@ -29,7 +29,7 @@ class ColumnModel:
     source_path: str | None = None
 
     def sql_type(self, dialect: str) -> str:
-        """대상 DB의 SQL 타입을 반환한다."""
+        """Return the SQL type for the target database."""
         values = {
             "oracle": self.sql_type_oracle,
             "mysql": self.sql_type_mysql,
@@ -45,7 +45,7 @@ class ColumnModel:
 
 @dataclass(frozen=True)
 class SelectItem:
-    """조회 계획의 한 SELECT 표현식."""
+    """Represent one SELECT expression in a query plan."""
 
     expression: str
     name: str
@@ -56,17 +56,17 @@ class SelectItem:
 
 @dataclass(frozen=True)
 class JoinSpec:
-    """DuckDB UNNEST 조인 하나."""
+    """Represent one DuckDB UNNEST join."""
 
     expression: str
     alias: str
-    join_type: str = "cross"  # cross 또는 left
+    join_type: str = "cross"  # cross or left
     map_entries: bool = False
 
 
 @dataclass(frozen=True)
 class SelectPlan:
-    """파일 경로를 파라미터로 받는 DuckDB SELECT 계획."""
+    """Represent a DuckDB SELECT plan that accepts the file path as a parameter."""
 
     selections: tuple[SelectItem, ...]
     joins: tuple[JoinSpec, ...] = ()
@@ -82,7 +82,7 @@ class SelectPlan:
 
 @dataclass(frozen=True)
 class TableModel:
-    """테이블 DDL, 관계와 재사용 SELECT 계획."""
+    """Store table DDL, relationships, and a reusable SELECT plan."""
 
     name: str
     columns: tuple[ColumnModel, ...]
@@ -99,14 +99,14 @@ class TableModel:
 
 @dataclass(frozen=True)
 class StringLength:
-    """컬럼 문자열의 문자 수와 인코딩 바이트 수."""
+    """Store a column string's character count and encoded byte count."""
 
     characters: int = 0
     bytes: int = 0
 
 
 class StringLengthMeasurements(dict[str, StringLength]):
-    """길이 측정값과 표본 측정 시 전체 파일 기준 정보를 함께 보관한다."""
+    """Store length measurements and full-file metadata for sampled measurements."""
 
     def __init__(
         self,

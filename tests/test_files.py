@@ -223,7 +223,7 @@ def test_symlink_escape_is_rejected_when_symlinks_are_available(tmp_path, parque
     try:
         link.symlink_to(outside)
     except (OSError, NotImplementedError):
-        pytest.skip("이 Windows 환경에서는 테스트용 심볼릭 링크를 만들 수 없습니다.")
+        pytest.skip("symlinks cannot be created in this environment")
 
     app.state.config = configured(tmp_path, (root,))
     with TestClient(app) as client:

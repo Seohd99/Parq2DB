@@ -1,4 +1,4 @@
-"""Oracle 19c CREATE TABLE 문을 순수 함수로 출력한다."""
+"""Generate Oracle 19c CREATE TABLE statements as a pure function."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def _identifier(name: str, policy: str) -> str:
 
 
 def generate_oracle_ddl(tables: Iterable[TableModel], *, json_check: bool = False) -> str:
-    """부모부터 자식 순서대로 Oracle CREATE TABLE 문을 만든다."""
+    """Generate Oracle CREATE TABLE statements in parent-to-child order."""
     statements: list[str] = []
     for table in tables:
         table_name = _identifier(table.name, table.identifier_policy)

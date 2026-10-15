@@ -81,7 +81,7 @@ host = "127.0.0.1"
 port = 8765
 upload_max_mb = 2048
 allowed_roots = ["D:\\data"]
-# macOS/Linux 예: allowed_roots = ["/home/me/data"]
+# macOS/Linux example: allowed_roots = ["/home/me/data"]
 
 [load]
 batch_size = 10000
@@ -107,9 +107,9 @@ password_env = "PARQBRIDGE_MYSQL_PASSWORD"
 
 [db.postgres]
 host = "db.example.local"
-port = 5432                    # 기본값 5432
+port = 5432                    # Default: 5432
 database = "parqbridge"
-schema = "public"              # 선택 사항
+schema = "public"              # Optional
 user = "parqbridge_user"
 password_env = "PARQBRIDGE_POSTGRES_PASSWORD"
 ```

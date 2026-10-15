@@ -1,21 +1,21 @@
-# ParqBridge 설정 예시. 이 파일을 config/parqbridge.toml로 복사해 고친다.
-# config/parqbridge.toml 과 config/parqbridge.local.toml 은 gitignore 대상이다.
+# ParqBridge example settings. Copy this file to config/parqbridge.toml and edit it.
+# config/parqbridge.toml and config/parqbridge.local.toml are ignored by Git.
 #
-# 비밀번호는 password_env 에 적은 환경변수로 받는다.
-# 환경변수를 쓸 수 없으면 config/parqbridge.local.toml 의 [db.oracle] password = "..." 로 줄 수 있다.
-# (이 파일이나 parqbridge.toml 에 적은 password 는 무시하고 경고한다.)
+# Read the password from the environment variable named by password_env.
+# If you cannot use an environment variable, set [db.oracle] password = "..." in config/parqbridge.local.toml.
+# (A password in this file or parqbridge.toml is ignored and triggers a warning.)
 
 [server]
-host = "127.0.0.1"          # 0.0.0.0 으로 바꾸지 말 것. 이 도구는 로컬 전용이다.
+host = "127.0.0.1"          # Do not change to 0.0.0.0; this tool is for local use only.
 port = 8765
 upload_max_mb = 2048
-allowed_roots = ["D:\\data"]  # Windows 예시. macOS/Linux: ["/home/me/data"]
+allowed_roots = ["D:\\data"]  # Windows example. macOS/Linux: ["/home/me/data"]
 
 [load]
 batch_size = 10000
 child_max_depth = 3
 
-# 아래 섹션이 없으면 해당 DB는 오프라인 모드(조회와 DDL만 가능)다.
+# Without the following section, the database stays offline (inspection and DDL remain available).
 
 # [db.oracle]
 # host = "db.example.local"
@@ -35,6 +35,6 @@ child_max_depth = 3
 # host = "db.example.local"
 # port = 5432
 # database = "pb"
-# schema = "public"  # 선택 사항
+# schema = "public"  # Optional
 # user = "pb_user"
 # password_env = "PARQBRIDGE_POSTGRES_PASSWORD"

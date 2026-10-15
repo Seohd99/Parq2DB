@@ -1,4 +1,4 @@
-"""Arrow 타입을 Oracle 19c와 MySQL 8 타입으로 바꾼다."""
+"""Map Arrow types to SQL types for the supported databases."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ STRING_SAMPLE_MARGIN = 1.20
 STRING_SCAN_DUCKDB_THREADS = min(4, max(1, os.cpu_count() or 1))
 STRING_SCAN_DUCKDB_MEMORY_LIMIT = "2GB"
 STRING_SCAN_ARROW_BATCH_SIZE = 1024
-ORACLE_VARCHAR_CHAR_LIMIT = 1000  # 4 KiB 바이트 한도에 AL32UTF8 최악 폭을 반영
-MYSQL_VARCHAR_CHAR_LIMIT = 16_383  # utf8mb4 기준 65,532 바이트
+ORACLE_VARCHAR_CHAR_LIMIT = 1000  # Accounts for the AL32UTF8 worst case within the 4 KiB byte limit.
+MYSQL_VARCHAR_CHAR_LIMIT = 16_383  # 65,532 bytes with utf8mb4.
 POSTGRES_VARCHAR_CHAR_LIMIT = 10_485_760
 POSTGRES_MAX_COLUMNS = 1_600
 MYSQL_TEXT_BYTES = 65_535
@@ -43,7 +43,7 @@ _STRING_LENGTH_CACHE_LOCK = RLock()
 
 
 def container_kind(data_type: pa.DataType) -> str | None:
-    """Arrow의 복합 타입 종류를 반환한다."""
+    """Return the kind of an Arrow nested type."""
     if pa.types.is_map(data_type):
         return "map"
     if pa.types.is_list(data_type) or pa.types.is_large_list(data_type) or pa.types.is_fixed_size_list(data_type):
@@ -54,7 +54,7 @@ def container_kind(data_type: pa.DataType) -> str | None:
 
 
 def logical_type(data_type: pa.DataType, is_json: bool = False) -> str:
-    """DDL 표시에 쓸 간결한 Arrow 논리 타입 이름."""
+    """Return a concise Arrow logical type name for DDL display."""
     if is_json or container_kind(data_type) is not None:
         return "json"
     if pa.types.is_timestamp(data_type):
@@ -115,7 +115,7 @@ def map_arrow_type(
     is_json: bool = False,
     json_check: bool = False,
 ) -> dict[str, Any]:
-    """타입 변환을 계산한다. 파일 IO가 없는 순수 함수다."""
+    """Calculate a type mapping without performing file I/O."""
     if dialect not in SUPPORTED_DIALECTS:
         raise ValueError(f"unknown SQL dialect: {dialect}")
     if string_strategy not in {"sample", "max", "lob"}:
@@ -298,7 +298,7 @@ def map_type_pair(
     is_json: bool = False,
     json_check: bool = False,
 ) -> dict[str, Any]:
-    """Arrow 타입을 지원하는 각 DB로 매핑하고 경고를 합친다."""
+    """Map an Arrow type for each supported database and combine the warnings."""
     oracle = map_arrow_type(
         data_type, "oracle", string_length=string_length, string_strategy=string_strategy,
         length_margin=length_margin,
@@ -325,7 +325,7 @@ def map_type_pair(
 
 
 def sample_row_positions(total_rows: int, sample_size: int = STRING_SAMPLE_ROWS) -> tuple[int, ...]:
-    """첫 구간에 치우치지 않도록 파일 전체 구간에서 행 위치를 고르게 고른다."""
+    """Choose row positions evenly across the file to avoid favoring its first section."""
     if total_rows <= 0 or sample_size <= 0:
         return ()
     count = min(total_rows, sample_size)
@@ -358,7 +358,7 @@ def _evenly_spaced_indices(total: int, count: int) -> tuple[int, ...]:
 
 
 def _allocate_group_rows(capacities: list[int], budget: int) -> list[int]:
-    """선택한 row group마다 행 예산을 나누고 작은 그룹의 남은 분량을 재분배한다."""
+    """Allocate the row budget across selected row groups and redistribute unused capacity."""
     target = min(max(0, budget), sum(capacities))
     allocation = [0] * len(capacities)
     active = [index for index, capacity in enumerate(capacities) if capacity > 0]
@@ -382,7 +382,7 @@ def _allocate_group_rows(capacities: list[int], budget: int) -> list[int]:
 
 
 def _group_windows(row_count: int, sample_count: int) -> tuple[tuple[int, int], ...]:
-    """row group 안에 고르게 분산된 연속 배치 구간을 만든다."""
+    """Create contiguous batch windows distributed evenly within a row group."""
     if row_count <= 0 or sample_count <= 0:
         return ()
     sample_count = min(row_count, sample_count)
@@ -441,7 +441,7 @@ def _record_arrow_lengths(
     path: str,
     result: dict[str, StringLength],
 ) -> None:
-    """Arrow compute로 배열 전체의 문자열·바이너리 최대 길이를 집계한다."""
+    """Use Arrow compute to aggregate the maximum string or binary length across an array."""
     if pa.types.is_string(data_type) or pa.types.is_large_string(data_type):
         characters = _maximum(pc.utf8_length(array))
         byte_count = _maximum(pc.binary_length(array))
@@ -553,7 +553,7 @@ def _measure_string_lengths_uncached(
     progress: Callable[[int, int], None] | None = None,
     cancel_event: Event | None = None,
 ) -> StringLengthMeasurements:
-    """필요한 문자열 리프의 길이를 읽어 측정 범위와 함께 반환한다."""
+    """Read the lengths of required string leaves and return them with the measurement scope."""
     if strategy not in {"sample", "max", "lob"}:
         raise PBError("E_BAD_REQUEST", fields=["string_strategy"])
     if length_scan not in {"full", "sample"}:
@@ -828,7 +828,7 @@ def _decimal_storage_bytes(precision: int, scale: int) -> int:
 
 
 def _mysql_column_row_bytes(column: ColumnModel) -> int:
-    """MySQL 컬럼의 최대 바이트와 길이 접두, 외부 저장 포인터를 추산한다."""
+    """Estimate a MySQL column's maximum bytes, length prefix, and external-storage pointer."""
     sql_type = (column.sql_type_mysql or "").strip().upper()
     match = re.fullmatch(r"(VARCHAR|VARBINARY|CHAR|BINARY)\((\d+)\)", sql_type)
     if match:
@@ -859,7 +859,7 @@ def _mysql_column_row_bytes(column: ColumnModel) -> int:
 
 
 def mysql_row_size_bytes(columns: tuple[ColumnModel, ...] | list[ColumnModel]) -> int:
-    """컬럼 메타데이터로 테이블 행 크기를 보수적으로 추산한다."""
+    """Conservatively estimate a table's row size from column metadata."""
     nullable_columns = sum(column.nullable for column in columns)
     null_bitmap = math.ceil(nullable_columns / 8)
     return MYSQL_ROW_FIXED_OVERHEAD + null_bitmap + sum(_mysql_column_row_bytes(column) for column in columns)
@@ -874,7 +874,7 @@ def _mysql_demoted_type(sql_type: str) -> str | None:
 
 
 def enforce_mysql_row_size(table: TableModel) -> TableModel:
-    """MySQL 행 예산이 넘으면 가장 큰 가변 길이 열부터 LOB로 낮춘다."""
+    """If the MySQL row budget is exceeded, promote the largest variable-length columns to LOB types first."""
     from dataclasses import replace
 
     columns = list(table.columns)

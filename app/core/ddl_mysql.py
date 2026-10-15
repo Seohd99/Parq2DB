@@ -1,4 +1,4 @@
-"""MySQL 8 CREATE TABLE 문을 순수 함수로 출력한다."""
+"""Generate MySQL 8 CREATE TABLE statements as a pure function."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def _identifier(name: str, policy: str) -> str:
 
 
 def generate_mysql_ddl(tables: Iterable[TableModel]) -> str:
-    """부모부터 자식 순서대로 InnoDB/utf8mb4 테이블을 만든다."""
+    """Generate InnoDB/utf8mb4 tables in parent-to-child order."""
     statements: list[str] = []
     for planned_table in tables:
         table = enforce_mysql_row_size(planned_table)

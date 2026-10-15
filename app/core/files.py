@@ -1,4 +1,4 @@
-"""Parquet 파일 선택, 허용 경로 검사, 업로드 저장을 담당한다."""
+"""Handle Parquet file selection, allowed-path checks, and upload storage."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from app.core.errors import PBError
 
 @dataclass(frozen=True)
 class SelectedFile:
-    """서버가 발급한 파일 핸들에 연결된 경로와 표시 정보."""
+    """Store the path and display information for a server-issued file handle."""
 
     file_id: str
     path: Path
@@ -21,7 +21,7 @@ class SelectedFile:
 
 
 class StreamingUpload:
-    """multipart parser가 전달하는 조각을 업로드 파일에 바로 기록한다."""
+    """Write each chunk from the multipart parser directly to the upload file."""
 
     def __init__(self, registry: FileRegistry, filename: str | None, max_bytes: int) -> None:
         self.registry = registry
@@ -34,14 +34,14 @@ class StreamingUpload:
         self._finished = False
 
     def write(self, chunk: bytes) -> None:
-        """크기를 먼저 확인한 뒤 받은 조각만 디스크에 기록한다."""
+        """Check the size first, then write the received chunk to disk."""
         if self.total_bytes + len(chunk) > self.max_bytes:
             raise PBError("E_UPLOAD_TOO_LARGE", max_bytes=self.max_bytes)
         self._output.write(chunk)
         self.total_bytes += len(chunk)
 
     def finish(self) -> SelectedFile:
-        """파일 핸들을 닫고 Parquet 매직을 확인한 뒤 file_id를 등록한다."""
+        """Close the file, validate the Parquet magic bytes, and register the file_id."""
         self._output.close()
         try:
             validate_parquet_magic(self.path)
@@ -54,7 +54,7 @@ class StreamingUpload:
         return selected
 
     def abort(self) -> None:
-        """미완성 업로드 핸들을 닫고 부분 파일을 제거한다."""
+        """Close an incomplete upload and remove its partial file."""
         if not self._output.closed:
             self._output.close()
         if not self._finished:
@@ -62,7 +62,7 @@ class StreamingUpload:
 
 
 class FileRegistry:
-    """클라이언트에 실제 경로 대신 file_id를 제공한다."""
+    """Expose a file_id to clients instead of the actual path."""
 
     def __init__(self, upload_dir: Path, allowed_roots: tuple[Path, ...] = ()) -> None:
         requested = upload_dir.absolute()
@@ -107,7 +107,7 @@ class FileRegistry:
         return selected
 
     def begin_upload(self, filename: str | None, max_bytes: int) -> StreamingUpload:
-        """검증된 multipart 파일 파트를 위한 안전한 임시 업로드를 연다."""
+        """Open a safe temporary upload for a validated multipart file part."""
         return StreamingUpload(self, filename, max_bytes)
 
     def delete_upload(self, file_id: str) -> None:
@@ -130,7 +130,7 @@ class FileRegistry:
 
 
 def resolve_allowed_path(raw_path: str | os.PathLike[str], allowed_roots: tuple[Path, ...]) -> Path:
-    """strict resolve 후 허용 루트 안에 있는지 확인한다."""
+    """Resolve the path strictly and verify that it is under an allowed root."""
     try:
         path = Path(raw_path).expanduser().resolve(strict=True)
         roots = tuple(root.resolve(strict=True) for root in allowed_roots)
@@ -142,7 +142,7 @@ def resolve_allowed_path(raw_path: str | os.PathLike[str], allowed_roots: tuple[
 
 
 def list_allowed_directory(raw_path: str, allowed_roots: tuple[Path, ...]) -> dict:
-    """허용 루트 안의 하위 폴더와 Parquet 파일만 반환한다."""
+    """Return only subdirectories and Parquet files under an allowed root."""
     path = resolve_allowed_path(raw_path, allowed_roots)
     if not path.is_dir():
         raise PBError("E_PATH_NOT_ALLOWED")
@@ -162,14 +162,14 @@ def list_allowed_directory(raw_path: str, allowed_roots: tuple[Path, ...]) -> di
             elif resolved.is_file() and child.suffix.lower() == ".parquet":
                 entries.append({"name": child.name, "path": str(resolved), "kind": "file", "size": resolved.stat().st_size})
         except (OSError, RuntimeError):
-            # 사라진 항목이나 루트 밖을 가리키는 링크는 목록에서 제외한다.
+            # Exclude missing entries and links that point outside the root.
             continue
     parent = str(path.parent) if path != root and path.is_relative_to(root) else None
     return {"current": str(path), "parent": parent, "entries": entries}
 
 
 def validate_parquet_magic(path: Path) -> None:
-    """파일 시작과 푸터의 PAR1 매직을 확인한다."""
+    """Validate the PAR1 magic bytes at the start and footer of the file."""
     try:
         with path.open("rb") as source:
             source.seek(0, 2)

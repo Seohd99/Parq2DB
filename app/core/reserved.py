@@ -1,4 +1,4 @@
-"""오프라인에서 쓰는 SQL 예약어 목록과 온라인 교체 지점."""
+"""Provide offline SQL reserved-word lists and optional online overrides."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ BUILTIN_RESERVED_WORDS = {
 
 
 def reserved_words(dialect: str, provider: ReservedWordProvider | None = None) -> frozenset[str]:
-    """내장 목록에 선택적인 온라인 조회 결과를 합쳐 반환한다."""
+    """Return the built-in list combined with optional online lookup results."""
     if dialect not in SUPPORTED_DIALECTS:
         raise ValueError(f"unknown SQL dialect: {dialect}")
     builtin = BUILTIN_RESERVED_WORDS[dialect]

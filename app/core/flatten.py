@@ -1,4 +1,4 @@
-"""Parquet 펼치기 계획과 DuckDB 조회 SQL을 만든다."""
+"""Build Parquet flattening plans and DuckDB query SQL."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def _max_identifier_length(dialect: str) -> int:
 
 
 def validate_table_name(name: str, dialect: str) -> str:
-    """테이블명 허용 문자와 DB별 길이를 검사한다."""
+    """Validate allowed table-name characters and database-specific length limits."""
     if dialect not in SUPPORTED_DIALECTS:
         raise PBError("E_DIALECT_INVALID", dialect=dialect)
     max_length = _max_identifier_length(dialect)
@@ -60,7 +60,7 @@ def validate_table_name(name: str, dialect: str) -> str:
 
 
 def default_table_name(filename: str, dialect: str = "oracle") -> str:
-    """파일 이름에서 기본 테이블명을 안전하게 만든다."""
+    """Create a safe default table name from a file name."""
     stem = Path(filename).stem
     result = _normalize_upper(stem)
     if not result or result[0].isdigit():
@@ -80,7 +80,7 @@ def _normalize_upper(value: str) -> str:
 
 
 class _NameAllocator:
-    """정책·길이·예약어·충돌 규칙을 컬럼과 자식 테이블에 적용한다."""
+    """Apply naming policy, length, reserved-word, and collision rules to columns and child tables."""
 
     def __init__(
         self,
@@ -273,7 +273,7 @@ def build_select_sql(
     limit: int | None = None,
     offset: int = 0,
 ) -> str:
-    """테이블별 파라미터 바인딩용 SELECT SQL을 반환한다."""
+    """Return the SELECT SQL for a table, with path parameters to bind."""
     if table.select_plan is None:
         raise ValueError(f"table {table.name} has no select plan")
     if offset < 0 or (limit is not None and limit < 1):
@@ -292,13 +292,13 @@ def build_select_sql(
 
 
 def build_count_sql(table: TableModel) -> tuple[str, list[str]]:
-    """실제 행 수를 DuckDB에서 세는 SQL과 바인딩용 경로 슬롯 수를 반환한다."""
+    """Return SQL to count actual rows in DuckDB and the number of path parameters to bind."""
     select_sql = build_select_sql(table)
     return f"SELECT COUNT(*) FROM ({select_sql}) AS q", ["path"]
 
 
 def build_expected_count_sql(table: TableModel) -> str | None:
-    """배열 길이 합 또는 explode 공식으로 예상 행 수를 세는 SQL."""
+    """Return SQL to count expected rows from array lengths or the explode formula."""
     plan = table.select_plan
     if plan is None or plan.expected_expression is None:
         return None
@@ -332,7 +332,7 @@ def query_table_preview(
     offset: int = 0,
     limit: int = 25,
 ) -> dict[str, Any]:
-    """DuckDB에서 한 페이지만 읽고 행 수를 반환한다."""
+    """Read one page from DuckDB and return its row count."""
     if limit < 1 or limit > 200 or offset < 0:
         raise PBError("E_BAD_REQUEST", fields=["offset", "limit"])
     sql = build_select_sql(table, dialect=dialect, limit=limit, offset=offset)
@@ -380,7 +380,7 @@ def query_table_preview(
 
 
 def sample_parent_key_duplicates(path: Path, column: str, *, sample_rows: int = PARENT_KEY_SAMPLE_ROWS) -> bool:
-    """선택한 키 컬럼을 전체 구간에서 고르게 표본 추출해 중복을 확인한다."""
+    """Sample the selected key column evenly across the file to check for duplicates."""
     with pq.ParquetFile(path) as parquet:
         metadata = parquet.metadata
         positions = set(sample_row_positions(metadata.num_rows, sample_rows))
@@ -442,7 +442,7 @@ def plan_tables(
     child_max_depth: int = 3,
     reserved_word_provider: ReservedWordProvider | None = None,
 ) -> list[TableModel]:
-    """스키마만으로 부모·자식 테이블 계획을 만든다. Parquet IO는 하지 않는다."""
+    """Build a parent/child table plan from the schema without reading Parquet data."""
     validate_table_name(table_name, dialect)
     if mode not in {"none", "child", "explode"}:
         raise PBError("E_FLATTEN_MODE_INVALID", mode=mode)
@@ -541,7 +541,7 @@ def plan_tables(
         ))
         return column
 
-    # 상위 테이블 컬럼을 채우고, list/map 계획은 부모부터 순서대로 재귀 생성한다.
+    # Populate parent-table columns and recursively build list/map plans in parent-first order.
     PendingChild = tuple[
         pa.DataType, str, str, str, str, list[tuple[ColumnModel, str]], tuple[JoinSpec, ...], int
     ]
@@ -803,7 +803,7 @@ def plan_tables(
                 warnings=local_warnings, allocator=allocator,
             )
 
-    # 자식 모드에서 상위 키를 먼저 정한다. 사용자 키는 스칼라 한 컬럼이며, 미지정 시 파일 행 ID를 쓴다.
+    # In child mode, choose the parent key first. A user key is one scalar column; otherwise, use the file row ID.
     root_key: ColumnModel
     root_key_expression: str
     if mode == "child" and key_field is not None:
@@ -882,7 +882,7 @@ def plan_tables(
                 utc_timestamp=root_key.logical_type == "timestamp_tz",
                 timestamp_text=root_key.logical_type == "timestamp_tz",
             ))
-        # 관계 목록은 순서와 중복을 유지하지 않도록 정리한다.
+        # Normalize the relationship list to remove ordering differences and duplicates.
         root_child_names = [t.name for t in tables if t.parent_table == table_name]
     else:  # explode
         assert selected is not None
