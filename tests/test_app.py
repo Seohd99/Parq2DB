@@ -454,3 +454,29 @@ def test_ddl_api_warns_on_large_explode_multiplier(tmp_path):
             assert "W_EXPLODE_ROW_MULTIPLIER" in warning_codes
         finally:
             c.delete(f"/api/files/{file_id}")
+@pytest.mark.parametrize("source", ["local", "upload"])
+@pytest.mark.parametrize("filename, expected", [
+    ("123.parquet", {"oracle": "T_123", "mysql": "_123", "postgres": "_123"}),
+    ("_orders.parquet", {"oracle": "ORDERS", "mysql": "_ORDERS", "postgres": "_ORDERS"}),
+    ("한글.parquet", {"oracle": "T_", "mysql": "__", "postgres": "__"}),
+    ("select.parquet", {dialect: "PARQUET_TABLE" for dialect in ("oracle", "mysql", "postgres")}),
+    ("a" * 130 + ".parquet", {"oracle": "A" * 128, "mysql": "A" * 64, "postgres": "A" * 63}),
+])
+def test_selected_file_supplies_valid_default_table_names(tmp_path, source, filename, expected):
+    path = tmp_path / filename
+    pq.write_table(pa.table({"id": [1]}), path)
+    cfg = AppConfig(server=ServerConfig(allowed_roots=(tmp_path,), upload_dir=tmp_path / "uploads"))
+    with client_with(cfg) as client:
+        if source == "local":
+            response = client.post("/api/files/local", json={"path": str(path)})
+        else:
+            response = client.post("/api/files/upload", files={"file": (filename, path.read_bytes())})
+        assert response.status_code == 200
+        selected = response.json()["file"]
+        assert selected["default_table_names"] == expected
+        for dialect, name in expected.items():
+            ddl = client.post(f"/api/files/{selected['file_id']}/ddl", json={
+                "dialect": dialect, "table_name": name,
+            })
+            assert ddl.status_code == 200, ddl.json()
+            assert ddl.json()["table_name"] == name

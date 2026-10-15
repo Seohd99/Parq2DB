@@ -234,6 +234,8 @@ python=.venv/bin/python
 5. DB가 온라인이면 연결 테스트 후 기존 테이블 정책을 고르고 `CREATE + INSERT`를 실행합니다.
 6. 진행률을 확인합니다. 완료 후 원본 또는 변환 예상 행 수와 DB `COUNT(*)` 결과를 비교합니다.
 
+기본 테이블명은 선택한 DB의 이름 규칙을 따르며, 대상 DB를 바꾸면 자동으로 갱신됩니다. 직접 수정한 이름은 다른 파일을 선택할 때까지 유지됩니다.
+
 주요 API는 `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/release`, `GET /api/jobs/{job_id}`입니다. 파일 핸들과 작업 상태는 프로세스 메모리에 있으므로 서버를 재시작하면 파일을 다시 선택해야 합니다.
 
 ## 펼치기 모드

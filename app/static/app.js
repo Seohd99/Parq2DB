@@ -12,6 +12,7 @@ const state = {
   inspection: null,
   preview: null,
   ddl: null,
+  tableNameEdited: false,
   job: null,
   connectionTests: {},
   browser: null,
@@ -210,12 +211,6 @@ function formatValue(value) {
   return String(value);
 }
 
-function safeTableName(filename) {
-  const base = String(filename || "parquet").replace(/\.[^.]*$/, "");
-  const safe = base.replace(/[^A-Za-z0-9_]/g, "_").toUpperCase();
-  return /^[0-9]/.test(safe) ? `_${safe}` : (safe || "PARQUET_TABLE");
-}
-
 function ddlOptions() {
   return {
     dialect: document.getElementById("ddl-dialect").value,
@@ -241,6 +236,16 @@ function updateDdlControls() {
   document.getElementById("ddl-preserve-empty").disabled = mode !== "explode";
   document.getElementById("ddl-json-check").disabled = dialect !== "oracle";
   document.getElementById("ddl-table-name").maxLength = dialect === "oracle" ? 128 : dialect === "postgres" ? 63 : 64;
+  if (state.file && !state.tableNameEdited) {
+    document.getElementById("ddl-table-name").value = state.file.default_table_names[dialect];
+  }
+}
+
+function updateDdlOptions(event) {
+  if (event.target.id === "ddl-table-name") state.tableNameEdited = true;
+  state.ddl = null;
+  updateDdlControls();
+  renderDdl();
 }
 
 function populateDdlControls() {
@@ -257,9 +262,6 @@ function populateDdlControls() {
   }
   if ([...keySelect.options].some((option) => option.value === oldKey)) keySelect.value = oldKey;
   if ([...explodeSelect.options].some((option) => option.value === oldExplode)) explodeSelect.value = oldExplode;
-  if (state.file && !document.getElementById("ddl-table-name").value) {
-    document.getElementById("ddl-table-name").value = safeTableName(state.file.display_name);
-  }
   updateDdlControls();
 }
 
@@ -658,7 +660,8 @@ async function loadSelection(file) {
     state.ddl = null;
     state.offset = 0;
     state.error = null;
-    document.getElementById("ddl-table-name").value = safeTableName(file.display_name);
+    state.tableNameEdited = false;
+    updateDdlControls();
     render();
     if (previousFileId && previousFileId !== file.file_id) {
       api(`/api/files/${encodeURIComponent(previousFileId)}/release`, { method: "POST" }).catch(() => {});
@@ -887,15 +890,8 @@ async function init() {
     "ddl-parent-key", "ddl-explode-column", "ddl-preserve-empty", "ddl-json-check",
   ].map((id) => document.getElementById(id));
   for (const control of ddlOptionsElements) {
-    control.addEventListener("change", () => {
-      state.ddl = null;
-      updateDdlControls();
-      renderDdl();
-    });
-    control.addEventListener("input", () => {
-      state.ddl = null;
-      renderDdl();
-    });
+    control.addEventListener("change", updateDdlOptions);
+    control.addEventListener("input", updateDdlOptions);
   }
   document.getElementById("ddl-generate").addEventListener("click", async (event) => {
     if (!state.file) return;

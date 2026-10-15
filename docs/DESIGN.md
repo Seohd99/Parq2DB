@@ -12,6 +12,8 @@ The supported database targets are Oracle 12.2 and later, designed around Oracle
 
 The web UI uses hand-written CSS over native HTML controls. It has no CSS framework, build step, web font, image, or remote asset, so it stays usable offline and adds little work to the browser when preview tables are large. Shared CSS tokens drive the light and dark palettes, spacing, borders, focus rings, badges, and status colors. The initial palette follows `prefers-color-scheme`; the header toggle can override it and saves an explicit choice as `parqbridge.theme` in `localStorage`. If storage is unavailable, the current session toggle still works and the system preference remains the default on the next visit.
 
+File selection and upload responses include `file.default_table_names` for every supported database, calculated by the same `default_table_name` function used by the planner and CLI. The web UI uses these names directly and refreshes an unedited suggestion when the target database changes. A user edit is preserved until another file is selected.
+
 ## Configuration and secrets
 
 Configuration is read from `config/parqbridge.toml`, then recursively overridden by `config/parqbridge.local.toml`. Both files are local-only; the versioned `config/parqbridge.example.toml` is a safe template. Database passwords come from the configured environment variable or the local configuration file. A password in the main configuration is ignored and produces a warning. Public configuration responses expose the connection target and username, not the password or DSN.

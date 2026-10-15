@@ -347,6 +347,9 @@ def select_local_file(body: LocalFileSelection, request: Request) -> dict:
         "file": {
             "file_id": selected.file_id,
             "display_name": selected.display_name,
+            "default_table_names": {
+                dialect: default_table_name(selected.display_name, dialect) for dialect in SUPPORTED_DIALECTS
+            },
             "source": selected.source,
             "size": selected.path.stat().st_size,
             "length_scan": scan,
@@ -367,6 +370,9 @@ async def upload_file(request: Request) -> dict:
         "file": {
             "file_id": selected.file_id,
             "display_name": selected.display_name,
+            "default_table_names": {
+                dialect: default_table_name(selected.display_name, dialect) for dialect in SUPPORTED_DIALECTS
+            },
             "source": selected.source,
             "size": selected.path.stat().st_size,
             "length_scan": scan,

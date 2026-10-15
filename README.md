@@ -234,6 +234,8 @@ As an optional step, you can install the editable console script. After installi
 5. If the database is online, test the connection, choose a policy for existing tables, and run `CREATE + INSERT`.
 6. Follow the progress. When the job finishes, compare the source or expected transformed row count with the database `COUNT(*)` result.
 
+The suggested table name follows the selected database's naming rules and updates when you change the target database. A name you edit yourself is kept until you select another file.
+
 The main API endpoints are `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/release`, and `GET /api/jobs/{job_id}`. File handles and job state live in process memory, so you must select the file again after restarting the server.
 
 ## Flattening modes
