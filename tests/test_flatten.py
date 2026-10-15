@@ -195,3 +195,34 @@ def test_struct_fields_differing_only_by_case_are_rejected(tmp_path: Path):
         plan(path, mode="none", dialect="postgres")
     assert error.value.code == "E_SCHEMA_NAME_COLLISION"
     assert error.value.params == {"path": "s.x"}
+
+
+@pytest.mark.parametrize("policy", ["upper_unquoted", "quoted"])
+def test_inherited_parent_key_name_is_reserved_in_child_tables(tmp_path: Path, policy: str):
+    import pyarrow as pa
+
+    path = tmp_path / "key-ord.parquet"
+    pq.write_table(pa.table({
+        "ORD": [10, 20],
+        "items": pa.array([[1], [2, 3]], type=pa.list_(pa.int64())),
+    }), path)
+    models = plan(path, mode="child", dialect="postgres", parent_key="ORD", column_policy=policy)
+    child = models[1]
+    assert [column.name for column in child.columns] == ["ORD", "ORD_2", "VALUE"]
+    rows = query_table_preview(path, child)["rows"]
+    assert [(row["ORD"], row["ORD_2"], row["VALUE"]) for row in rows] == [(10, 0, 1), (20, 0, 2), (20, 1, 3)]
+
+
+def test_child_table_name_never_equals_a_max_length_parent_name(tmp_path: Path):
+    import pyarrow as pa
+
+    path = tmp_path / "long.parquet"
+    pq.write_table(pa.table({"items": pa.array([[1]], type=pa.list_(pa.int64()))}), path)
+    parent = "P" * 63
+    with pq.ParquetFile(path) as parquet:
+        schema = parquet.schema_arrow
+    models = plan_tables(schema, table_name=parent, mode="child", dialect="postgres")
+    names = [table.name for table in models]
+    assert len(set(names)) == len(names)
+    assert names[0] == parent
+    assert len(names[1].encode("utf-8")) <= 63

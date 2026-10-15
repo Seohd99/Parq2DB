@@ -132,6 +132,23 @@ class _NameAllocator:
         self.used.add(candidate)
         return candidate
 
+    def allocate_generated(self, base: str, warnings: list[dict[str, Any]] | None = None) -> str:
+        """Allocate an app-generated name, renaming it on collision even under the quoted policy."""
+        if self.policy != "quoted":
+            return self.allocate(base, warnings)
+        warnings = warnings if warnings is not None else []
+        unique = self._unique(base)
+        if unique != base:
+            warnings.append(warning(
+                "W_IDENTIFIER_COLLISION", original=base, name=unique, dialect=self.dialect,
+            ))
+        self.used.add(unique)
+        return unique
+
+    def reserve(self, name: str) -> None:
+        """Mark a name that is already taken in this namespace, such as an inherited key."""
+        self.used.add(name if self.policy == "quoted" else name.upper())
+
     def _fit(self, name: str, suffix: str) -> str:
         room = self.max_length - len(suffix)
         base = name[:max(1, room)]
@@ -416,6 +433,24 @@ def _row_id_column(name: str = "_PB_ROW_ID", string_strategy: str = "sample") ->
     )
 
 
+def _check_unique_names(tables: list[TableModel], policy: str) -> None:
+    """Fail instead of emitting DDL with duplicate table or column names."""
+
+    def key(name: str) -> str:
+        return name if policy == "quoted" else name.upper()
+
+    table_keys: set[str] = set()
+    for table in tables:
+        if key(table.name) in table_keys:
+            raise PBError("E_IDENTIFIER_INVALID", name=table.name)
+        table_keys.add(key(table.name))
+        column_keys: set[str] = set()
+        for column in table.columns:
+            if key(column.name) in column_keys:
+                raise PBError("E_IDENTIFIER_INVALID", name=column.name)
+            column_keys.add(key(column.name))
+
+
 def _check_schema_names(schema: pa.Schema) -> None:
     """Reject field names that DuckDB cannot tell apart.
 
@@ -508,6 +543,7 @@ def plan_tables(
     table_names = _NameAllocator(
         dialect, column_policy, table=True, reserved_word_provider=reserved_word_provider,
     )
+    table_names.reserve(table_name)
     tables: list[TableModel] = []
     root_warnings: list[dict[str, Any]] = []
     sampled_rows = getattr(lengths, "sampled_rows", None)
@@ -626,6 +662,8 @@ def plan_tables(
         current_table_warnings: list[dict[str, Any]] = []
         pending: list[PendingChild] = []
 
+        for key_column, _ in parent_keys:
+            child_allocator.reserve(key_column.name)
         for key_column, key_expression in parent_keys:
             child_columns.append(key_column)
             selections.append(SelectItem(
@@ -637,7 +675,7 @@ def plan_tables(
 
         ordinal_column: ColumnModel | None = None
         if kind == "list":
-            ordinal_name = child_allocator.allocate("ORD", current_table_warnings)
+            ordinal_name = child_allocator.allocate_generated("ORD", current_table_warnings)
             ordinal_column = _column(
                 original_path=f"{original_path}[]:ord",
                 original_name="ORD",
@@ -657,7 +695,7 @@ def plan_tables(
             value_type = data_type.value_type
             item_kind = container_kind(value_type)
             if item_kind is None:
-                value_name = child_allocator.allocate("VALUE", current_table_warnings)
+                value_name = child_allocator.allocate_generated("VALUE", current_table_warnings)
                 add_column(
                     child_columns, selections, data_type=value_type, original_path=f"{original_path}[]",
                     original_name="VALUE", expression=item_expression, target_name=value_name,
@@ -686,14 +724,14 @@ def plan_tables(
                         pending,
                     )
                 if len(value_type) == 0:
-                    value_name = child_allocator.allocate("VALUE", current_table_warnings)
+                    value_name = child_allocator.allocate_generated("VALUE", current_table_warnings)
                     add_column(
                         child_columns, selections, data_type=value_type, original_path=f"{original_path}[]",
                         original_name="VALUE", expression=item_expression, is_json=True,
                         target_name=value_name, warnings=current_table_warnings, allocator=child_allocator,
                     )
             elif container_depth >= child_max_depth:
-                value_name = child_allocator.allocate("VALUE", current_table_warnings)
+                value_name = child_allocator.allocate_generated("VALUE", current_table_warnings)
                 add_column(
                     child_columns, selections, data_type=value_type, original_path=f"{original_path}[]",
                     original_name="VALUE", expression=item_expression, is_json=True,
@@ -712,8 +750,8 @@ def plan_tables(
         else:
             key_type = data_type.key_type
             value_type = data_type.item_type
-            key_name = child_allocator.allocate("MAP_KEY", current_table_warnings)
-            value_name = child_allocator.allocate("MAP_VALUE", current_table_warnings)
+            key_name = child_allocator.allocate_generated("MAP_KEY", current_table_warnings)
+            value_name = child_allocator.allocate_generated("MAP_VALUE", current_table_warnings)
             add_column(
                 child_columns, selections, data_type=key_type, original_path=f"{original_path}.key",
                 original_name="MAP_KEY", expression=_source_field(item_expression, "key"),
@@ -727,7 +765,7 @@ def plan_tables(
             )
 
         if not child_columns:
-            value_name = child_allocator.allocate("VALUE", current_table_warnings)
+            value_name = child_allocator.allocate_generated("VALUE", current_table_warnings)
             add_column(
                 child_columns, selections, data_type=pa.string(), original_path=f"{original_path}[]",
                 original_name="VALUE", expression="CAST(NULL AS VARCHAR)", target_name=value_name,
@@ -856,7 +894,7 @@ def plan_tables(
         )
         root_key_expression = source_ref(key_field.name)
     elif mode == "child":
-        generated_name = column_names.allocate("_PB_ROW_ID", root_warnings)
+        generated_name = column_names.allocate_generated("_PB_ROW_ID", root_warnings)
         root_key = _row_id_column(name=generated_name, string_strategy=string_strategy)
         root_key_expression = f"src.{_quote(internal_row_id)}"
     else:
@@ -998,6 +1036,7 @@ def plan_tables(
         if table.parent_table:
             children_by_parent.setdefault(table.parent_table, []).append(table.name)
     planned = [replace(table, child_tables=tuple(children_by_parent.get(table.name, ()))) for table in tables]
+    _check_unique_names(planned, column_policy)
     if dialect == "mysql":
         planned = [enforce_mysql_row_size(table) for table in planned]
     if dialect == "postgres":
