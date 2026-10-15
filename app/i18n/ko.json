@@ -88,7 +88,7 @@
   "ddl.measurement.failed": "추정치 · 정밀 측정 실패",
   "ddl.measurement.sampled": "추정치 · 표본 설정",
   "ddl.parent_key": "부모 키",
-  "ddl.generated_key": "_PB_ROW_ID 생성",
+  "ddl.generated_key": "행 ID 키 자동 생성",
   "ddl.explode_column": "전개할 list 컬럼",
   "ddl.choose_column": "컬럼 선택",
   "ddl.preserve_empty": "빈 배열/null 행 유지",

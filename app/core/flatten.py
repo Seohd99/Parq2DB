@@ -43,16 +43,18 @@ def _max_identifier_length(dialect: str) -> int:
     }[dialect]
 
 
-def validate_table_name(name: str, dialect: str) -> str:
+def validate_table_name(name: str, dialect: str, policy: str = "upper_unquoted") -> str:
     """Validate allowed table-name characters and database-specific length limits."""
     if dialect not in SUPPORTED_DIALECTS:
         raise PBError("E_DIALECT_INVALID", dialect=dialect)
     max_length = _max_identifier_length(dialect)
     size = len(name.encode("utf-8")) if dialect in {"oracle", "postgres"} else len(name)
+    # Oracle nonquoted identifiers must begin with a letter.
+    first = r"[A-Za-z]" if dialect == "oracle" and policy != "quoted" else r"[A-Za-z_]"
     if (
         not name
         or size > max_length
-        or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name, flags=re.ASCII)
+        or not re.fullmatch(first + r"[A-Za-z0-9_]*", name, flags=re.ASCII)
         or name.upper() in reserved_words(dialect)
     ):
         raise PBError("E_TABLE_NAME_INVALID", dialect=dialect, max_length=max_length)
@@ -62,9 +64,7 @@ def validate_table_name(name: str, dialect: str) -> str:
 def default_table_name(filename: str, dialect: str = "oracle") -> str:
     """Create a safe default table name from a file name."""
     stem = Path(filename).stem
-    result = _normalize_upper(stem)
-    if not result or result[0].isdigit():
-        result = f"_{result}"
+    result = _normalize_upper(stem, dialect, oracle_prefix="T_")
     result = result[:_max_identifier_length(dialect)] or "PARQUET_TABLE"
     try:
         return validate_table_name(result, dialect)
@@ -72,8 +72,15 @@ def default_table_name(filename: str, dialect: str = "oracle") -> str:
         return "PARQUET_TABLE"
 
 
-def _normalize_upper(value: str) -> str:
+def _normalize_upper(value: str, dialect: str | None = None, *, oracle_prefix: str = "C_") -> str:
     value = re.sub(r"[^A-Za-z0-9_]", "_", value, flags=re.ASCII).upper()
+    if dialect == "oracle":
+        # Oracle nonquoted identifiers must begin with a letter, so drop leading
+        # underscores and prefix anything that still does not start with one.
+        value = value.lstrip("_")
+        if not value or not value[0].isalpha():
+            value = oracle_prefix + value
+        return value
     if value and value[0].isdigit():
         value = "_" + value
     return value or "_"
@@ -113,7 +120,9 @@ class _NameAllocator:
             if candidate in self.used:
                 raise PBError("E_IDENTIFIER_INVALID", name=original)
         else:
-            candidate = _normalize_upper(original)
+            candidate = _normalize_upper(
+                original, self.dialect, oracle_prefix="T_" if self.table else "C_",
+            )
             candidate = self._fit(candidate, "")
             if candidate.upper() in self.reserved:
                 renamed = self._unique(self._fit(candidate, "_2"))
@@ -504,7 +513,7 @@ def plan_tables(
     reserved_word_provider: ReservedWordProvider | None = None,
 ) -> list[TableModel]:
     """Build a parent/child table plan from the schema without reading Parquet data."""
-    validate_table_name(table_name, dialect)
+    validate_table_name(table_name, dialect, column_policy)
     if mode not in {"none", "child", "explode"}:
         raise PBError("E_FLATTEN_MODE_INVALID", mode=mode)
     if string_strategy not in {"sample", "max", "lob"}:

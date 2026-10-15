@@ -62,12 +62,12 @@ def test_child_mode_stream_plans_and_counts_all_child_rows(parquet_path: Path):
 def test_generated_parent_row_id_is_zero_based_and_streaming(parquet_path: Path):
     models = plan(parquet_path, mode="child", dialect="oracle")
     root = models[0]
-    assert root.columns[0].name == "_PB_ROW_ID"
+    assert root.columns[0].name == "PB_ROW_ID"
     assert root.select_plan.row_id_strategy == "file_row_number"
     assert "file_row_number=true" in build_select_sql(root)
     assert "row_number() OVER ()" not in build_select_sql(root)
     preview = query_table_preview(parquet_path, root, limit=5)
-    assert [row["_PB_ROW_ID"] for row in preview["rows"]] == [0, 1, 2, 3, 4]
+    assert [row["PB_ROW_ID"] for row in preview["rows"]] == [0, 1, 2, 3, 4]
 
 
 def test_generated_id_handles_physical_file_row_number_column(tmp_path: Path):
@@ -88,7 +88,7 @@ def test_generated_id_handles_physical_file_row_number_column(tmp_path: Path):
     assert root.select_plan.row_id_strategy == "window"
     assert "row_number() OVER ()" in build_select_sql(root)
     preview = query_table_preview(path, root, limit=5)
-    assert [row["_PB_ROW_ID"] for row in preview["rows"]] == [0, 1]
+    assert [row["PB_ROW_ID"] for row in preview["rows"]] == [0, 1]
 
 
 def test_child_depth_limit_keeps_overflow_as_json(parquet_path: Path):
@@ -195,6 +195,28 @@ def test_struct_fields_differing_only_by_case_are_rejected(tmp_path: Path):
         plan(path, mode="none", dialect="postgres")
     assert error.value.code == "E_SCHEMA_NAME_COLLISION"
     assert error.value.params == {"path": "s.x"}
+
+
+def test_oracle_unquoted_identifiers_start_with_a_letter(tmp_path: Path):
+    import pyarrow as pa
+
+    path = tmp_path / "oracle-names.parquet"
+    pq.write_table(pa.table({
+        "_id": [1],
+        "1st": [2],
+        "items": pa.array([[5]], type=pa.list_(pa.int64())),
+    }), path)
+    models = plan(path, mode="child", dialect="oracle")
+    names = [table.name for table in models] + [column.name for table in models for column in table.columns]
+    assert all(name[0].isalpha() for name in names), names
+    assert [column.name for column in models[0].columns] == ["PB_ROW_ID", "ID", "C_1ST"]
+    quoted = plan(path, mode="child", dialect="oracle", column_policy="quoted")
+    assert quoted[0].columns[0].name == "_PB_ROW_ID"
+    with pytest.raises(PBError) as error:
+        validate_table_name("_ORDERS", "oracle")
+    assert error.value.code == "E_TABLE_NAME_INVALID"
+    assert validate_table_name("_ORDERS", "oracle", "quoted") == "_ORDERS"
+    assert validate_table_name("_ORDERS", "postgres") == "_ORDERS"
 
 
 @pytest.mark.parametrize("policy", ["upper_unquoted", "quoted"])

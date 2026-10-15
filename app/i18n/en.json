@@ -91,7 +91,7 @@
   "ddl.measurement.failed": "Estimated · precise scan failed",
   "ddl.measurement.sampled": "Estimated · sample mode",
   "ddl.parent_key": "Parent key",
-  "ddl.generated_key": "Generate _PB_ROW_ID",
+  "ddl.generated_key": "Generate a row ID key",
   "ddl.explode_column": "List column to explode",
   "ddl.choose_column": "Choose a column",
   "ddl.preserve_empty": "Keep empty/null list rows",
