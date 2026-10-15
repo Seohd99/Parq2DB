@@ -103,11 +103,16 @@ class StringScanManager:
                 if record is None or record.status == "cancelled":
                     raise PBError("E_STRING_SCAN_CANCELLED")
                 if record.status == "ready":
+                    # An empty measurement set is falsy but valid (no string/binary columns),
+                    # so test for None explicitly instead of using `or`.
+                    measured = record.measurements
+                    if measured is None:
+                        return StringLengthMeasurements({})
                     return StringLengthMeasurements(
-                        dict(record.measurements or {}),
-                        sampled_rows=(record.measurements or {}).sampled_rows,
-                        total_rows=(record.measurements or {}).total_rows,
-                        margin=(record.measurements or {}).margin,
+                        dict(measured),
+                        sampled_rows=measured.sampled_rows,
+                        total_rows=measured.total_rows,
+                        margin=measured.margin,
                     )
                 if record.status == "failed":
                     detail = record.error or {"code": "E_STRING_SCAN_FAILED", "params": {}}

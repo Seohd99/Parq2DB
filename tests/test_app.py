@@ -454,6 +454,22 @@ def test_ddl_api_warns_on_large_explode_multiplier(tmp_path):
             assert "W_EXPLODE_ROW_MULTIPLIER" in warning_codes
         finally:
             c.delete(f"/api/files/{file_id}")
+
+
+def test_string_scan_wait_accepts_files_without_variable_length_columns(tmp_path):
+    path = tmp_path / "ints.parquet"
+    pq.write_table(pa.table({"id": [1, 2, 3]}), path)
+    manager = StringScanManager(max_workers=1)
+    try:
+        manager.start("ints", path)
+        measured = manager.wait("ints", threading.Event())
+        assert isinstance(measured, StringLengthMeasurements)
+        assert dict(measured) == {}
+        assert measured.margin >= 1.0
+    finally:
+        manager.shutdown()
+
+
 @pytest.mark.parametrize("source", ["local", "upload"])
 @pytest.mark.parametrize("filename, expected", [
     ("123.parquet", {"oracle": "T_123", "mysql": "_123", "postgres": "_123"}),
