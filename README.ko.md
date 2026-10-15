@@ -358,15 +358,6 @@ UPDATE_GOLDEN=1 .venv/bin/python -m pytest -q tests/test_ddl.py
 - DB 실적은 드라이버, 네트워크, 스키마와 서버 설정에 따라 달라집니다. fake-driver 측정값은 실DB 적재 속도나 메모리를 뜻하지 않습니다.
 - 화면의 파일 핸들 및 작업 이력은 프로세스 메모리에만 보관됩니다.
 
-## 스크린샷 자리
-
-수동 브라우저 확인 후 저장할 자리입니다. 현재 이미지 파일은 포함하지 않습니다.
-
-- `docs/screenshots/overview.png` — 파일 선택과 DB 상태
-- `docs/screenshots/inspection.png` — 스키마, 통계, 미리보기
-- `docs/screenshots/ddl-load.png` — DDL과 적재 진행률
-
-
 ## 라이선스
 
 [MIT](LICENSE)

@@ -358,13 +358,6 @@ The script outputs JSON with the selected file's size, row count and number of r
 - Database performance depends on the driver, network, schema, and server settings. Fake-driver measurements do not represent real database load speed or memory usage.
 - File handles and job history shown in the UI are stored only in process memory.
 
-## Screenshot placeholders
-
-These are locations for screenshots to add after manual browser verification. No image files are included yet.
-
-- `docs/screenshots/overview.png` — file selection and database status
-- `docs/screenshots/inspection.png` — schema, statistics, and preview
-- `docs/screenshots/ddl-load.png` — DDL and load progress
 ## License
 
 [MIT](LICENSE)
