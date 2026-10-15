@@ -3,25 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>ParqBridge</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="topbar">
-    <h1>ParqBridge</h1>
-    <span id="version" class="muted"></span>
+    <div class="topbar-brand">
+      <h1>ParqBridge</h1>
+      <span id="version" class="version-badge muted"></span>
+    </div>
     <div class="spacer"></div>
-    <label for="lang" data-i18n="ui.language">Language</label>
-    <select id="lang">
-      <option value="ko" data-i18n="ui.korean">Korean</option>
-      <option value="en" data-i18n="ui.english" selected>English</option>
-    </select>
+    <div class="topbar-controls">
+      <label for="lang" data-i18n="ui.language">Language</label>
+      <select id="lang"></select>
+      <button id="theme-toggle" class="button-ghost theme-toggle" type="button" aria-pressed="false" aria-label="Toggle color theme">
+        <span class="theme-mark" aria-hidden="true">◐</span>
+        <span id="theme-label" data-i18n="ui.theme_light">Light</span>
+      </button>
+    </div>
   </header>
 
   <main>
     <section class="card" id="db-status">
       <h2 data-i18n="status.title">Database connections</h2>
       <ul id="db-list"></ul>
+      <details id="db-offline-details" class="offline-details" hidden>
+        <summary data-i18n="status.offline_details">Offline database details</summary>
+        <div class="offline-details-body">
+          <ul id="db-offline-reasons" class="offline-reasons"></ul>
+          <p id="db-offline-help" class="muted" data-i18n="status.configure_help">Configure a database profile to enable database actions. See README.md &gt; Configuration.</p>
+        </div>
+      </details>
       <ul id="config-warnings" class="warnings"></ul>
     </section>
 
@@ -35,11 +48,10 @@
         <form id="upload-form">
           <label for="upload-file" data-i18n="files.choose_file">Parquet file</label>
           <input id="upload-file" name="file" type="file" accept=".parquet" required>
-          <button type="submit" data-i18n="files.upload">Upload and open</button>
+          <button class="button-primary" type="submit" data-i18n="files.upload">Upload and open</button>
         </form>
       </div>
       <div id="local-panel" class="panel" hidden>
-        <p data-i18n="files.allowed_roots">Only allowed folders are shown.</p>
         <div id="browser-roots" class="entry-list"></div>
         <div class="browser-toolbar">
           <button id="browser-up" type="button" data-i18n="files.parent" disabled>Parent folder</button>
@@ -146,19 +158,25 @@
           <label class="check-option"><input id="ddl-preserve-empty" type="checkbox" checked><span data-i18n="ddl.preserve_empty">Keep empty/null list rows</span></label>
           <label class="check-option"><input id="ddl-json-check" type="checkbox"><span data-i18n="ddl.json_check">Add Oracle IS JSON checks</span></label>
         </div>
-        <button id="ddl-generate" type="button" data-i18n="ddl.generate">Build DDL plan and preview</button>
-        <p id="ddl-measurement" class="measurement-badge" hidden aria-live="polite"></p>
-        <ul id="ddl-warnings" class="warnings"></ul>
-        <div id="ddl-mappings" class="table-wrap"></div>
-        <div id="flatten-previews" class="flatten-previews"></div>
-        <div class="ddl-result-tools">
+        <button id="ddl-generate" class="button-primary" type="button" data-i18n="ddl.generate">Build DDL plan and preview</button>
+        <div id="ddl-result-tools" class="ddl-result-tools" hidden>
           <h3 data-i18n="ddl.sql">SQL</h3>
           <div class="button-row">
             <button id="ddl-copy" type="button" data-i18n="ddl.copy" disabled>Copy</button>
             <button id="ddl-download" type="button" data-i18n="ddl.download" disabled>Download .sql</button>
           </div>
         </div>
-        <pre id="ddl-output" class="sql-output"></pre>
+        <pre id="ddl-output" class="sql-output" hidden></pre>
+        <p id="ddl-measurement" class="measurement-badge" hidden aria-live="polite"></p>
+        <ul id="ddl-warnings" class="warnings"></ul>
+        <details id="ddl-mappings" class="result-details" hidden>
+          <summary data-i18n="ddl.mapping_title">Source and target column names</summary>
+          <div id="ddl-mapping-content" class="table-wrap"></div>
+        </details>
+        <details id="flatten-previews" class="result-details" hidden>
+          <summary data-i18n="ddl.preview_summary">Transformed data preview</summary>
+          <div id="flatten-preview-content" class="flatten-previews"></div>
+        </details>
         <section class="load-panel" aria-labelledby="load-title">
           <h3 id="load-title" data-i18n="load.title">CREATE and INSERT</h3>
           <div class="load-controls">
@@ -171,7 +189,7 @@
               </select>
             </label>
             <div class="button-row">
-              <button id="load-start" type="button" data-i18n="load.start" disabled>CREATE + INSERT</button>
+            <button id="load-start" class="button-primary" type="button" data-i18n="load.start" disabled>CREATE + INSERT</button>
               <button id="load-cancel" type="button" class="danger-button" data-i18n="load.cancel" hidden>Cancel</button>
             </div>
           </div>

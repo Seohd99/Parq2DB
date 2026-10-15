@@ -12,6 +12,7 @@ import ipaddress
 import json
 import locale
 import os
+import re
 import sys
 import tempfile
 import time
@@ -25,21 +26,15 @@ from app.core.dialects import DIALECT_LABELS, SUPPORTED_DIALECTS
 from app.core.errors import PBError, warning
 from app.core.files import SelectedFile, resolve_allowed_path, validate_parquet_magic
 from app.core.inspect import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, inspect_parquet, preview_parquet
+from app.core.languages import default_language, language_code_for_locale, language_codes
 
 
 _I18N_DIR = Path(__file__).resolve().parent / "i18n"
-_CATALOGS: dict[str, dict[str, str]] = {}
+_CATALOGS: dict[str, dict[str, Any]] = {}
 
 
 def _language_from_locale(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().casefold()
-    if normalized.startswith("ko"):
-        return "ko"
-    if normalized.startswith("en"):
-        return "en"
-    return None
+    return language_code_for_locale(value)
 
 
 def _default_lang(
@@ -54,12 +49,12 @@ def _default_lang(
     for name in ("PARQBRIDGE_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
         value = env.get(name)
         if value and value.strip():
-            return _language_from_locale(value) or "en"
+            return _language_from_locale(value) or default_language()
 
     if windows is None:
         windows = os.name == "nt"
     if not windows:
-        return "en"
+        return default_language()
 
     if system_locale is None:
         try:
@@ -80,10 +75,10 @@ def _default_lang(
         language = _language_from_locale(windows_locale)
         if language:
             return language
-    return "en"
+    return default_language()
 
 
-def _catalog(lang: str) -> dict[str, str]:
+def _catalog(lang: str) -> dict[str, Any]:
     if lang not in _CATALOGS:
         with (_I18N_DIR / f"{lang}.json").open("r", encoding="utf-8") as source:
             _CATALOGS[lang] = json.load(source)
@@ -97,12 +92,28 @@ def _load_config() -> AppConfig:
 
 def _message(key: str, lang: str, params: dict[str, Any] | None = None) -> str:
     template = _catalog(lang).get(key, key)
-    if not params:
-        return template
+    values = params or {}
+
+    def keep_optional_group(match: re.Match[str]) -> str:
+        fields = re.findall(r"\{(\w+)\}", match.group(0))
+        if any(field not in values or values[field] is None for field in fields):
+            return ""
+        return match.group(0)
+
+    template = re.sub(r"\([^()]*\{\w+\}[^()]*\)", keep_optional_group, template)
+
+    class MissingParams(dict[str, Any]):
+        def __missing__(self, _key: str) -> str:
+            return ""
+
     try:
-        return template.format_map(params)
-    except (KeyError, ValueError):
+        message = template.format_map(MissingParams(values))
+    except ValueError:
         return template
+    message = re.sub(r"[ \t]{2,}", " ", message)
+    message = re.sub(r"\s+([,.;:!?])", r"\1", message)
+    message = re.sub(r"\(\s*\)", "", message)
+    return message.strip()
 
 
 def _error_message(code: str, lang: str, params: dict[str, Any] | None = None) -> str:
@@ -499,13 +510,13 @@ def _offset(value: str) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="parqbridge", allow_abbrev=False)
-    parser.add_argument("--lang", choices=("ko", "en"), default=_default_lang())
+    parser.add_argument("--lang", choices=language_codes(), default=_default_lang())
     parser.add_argument("--host", help=argparse.SUPPRESS)
     parser.add_argument("--port", type=_port, help=argparse.SUPPRESS)
     commands = parser.add_subparsers(dest="command")
 
     def add_lang(command: argparse.ArgumentParser) -> None:
-        command.add_argument("--lang", choices=("ko", "en"), default=argparse.SUPPRESS)
+        command.add_argument("--lang", choices=language_codes(), default=argparse.SUPPRESS)
 
     serve = commands.add_parser("serve", allow_abbrev=False, help="start the local web server")
     add_lang(serve)

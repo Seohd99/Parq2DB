@@ -38,6 +38,7 @@ from app.core.flatten import (
     sample_parent_key_duplicates,
 )
 from app.core.inspect import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, inspect_parquet, preview_parquet
+from app.core.languages import supported_languages
 from app.core.model import StringLengthMeasurements, TableModel
 from app.core.typemap import container_kind, measure_string_lengths
 from app.core.ddl_mysql import generate_mysql_ddl
@@ -76,6 +77,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ParqBridge", version=__version__, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def no_cache_frontend_assets(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path in {"/static", "/i18n"} or path.startswith(("/static/", "/i18n/")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.exception_handler(PBError)
@@ -299,7 +309,7 @@ class LoadOptions(DdlOptions):
 @app.get("/api/status")
 def status(request: Request) -> dict:
     """Return the version, server limits, and database profile status without passwords."""
-    return {"version": __version__, **get_config(request).public()}
+    return {"version": __version__, "languages": supported_languages(), **get_config(request).public()}
 
 
 @app.post("/api/db/{dialect}/test")

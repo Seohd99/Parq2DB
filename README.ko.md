@@ -2,11 +2,21 @@
 
 # ParqBridge
 
-ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Oracle(12.2+, 19c 기준 설계), MySQL 8+, PostgreSQL 16+용 DDL을 만드는 도구입니다. DB 설정이 있으면 연결 테스트, 테이블 생성, 배치 INSERT와 적재 후 행 수 대조까지 할 수 있습니다. FastAPI와 빌드 체인 없는 바닐라 JavaScript로 동작합니다.
+ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Oracle(12.2+, 19c 기준 설계), MySQL 8+, PostgreSQL 16+용 DDL을 만드는 도구입니다. DB 설정이 있으면 연결 테스트, 테이블 생성, 배치 INSERT와 적재 후 행 수 대조까지 할 수 있습니다. FastAPI와 빌드 체인 없는 바닐라 JavaScript로 동작합니다. 웹 화면은 시스템 라이트/다크 설정을 따르며 테마를 전환하고 저장할 수 있습니다.
 
 현재 아키텍처와 설계 제약은 [설계 문서](docs/DESIGN.md)를 참고하세요.
 
 기본 서버 주소는 `http://127.0.0.1:8765`입니다. DB 프로필이 없거나 설정이 완전하지 않으면 조회와 DDL만 가능한 오프라인 모드로 실행됩니다.
+
+## 스크린샷
+
+예제 데이터: struct·list 컬럼이 있는 2,500행짜리 생성 파일 `orders.parquet`.
+
+| 파일 선택 | 스키마·통계 조회 |
+|---|---|
+| ![파일 선택과 DB 상태](docs/screenshots/ko-select.png) | ![파일 개요, 컬럼 통계, 스키마 트리](docs/screenshots/ko-inspect.png) |
+| **데이터 미리보기** | **DDL 생성 (PostgreSQL, 자식 테이블)** |
+| ![페이지 단위 데이터 미리보기](docs/screenshots/ko-preview.png) | ![생성된 DDL](docs/screenshots/ko-ddl.png) |
 
 ## 요구사항
 
@@ -167,7 +177,11 @@ macOS/Linux (bash):
 
 Uvicorn 직접 실행 명령은 Uvicorn 기본 주소인 `127.0.0.1:8000`을 사용합니다.
 
-브라우저에서 서버 주소를 열고 언어 선택기에서 한국어 또는 영어를 고릅니다. 저장된 선택이 있으면 우선 사용하고, 없으면 브라우저 언어 목록에서 처음 지원되는 언어(`ko*` 또는 `en*`)를 선택하며 지원 언어가 없으면 영어를 사용합니다. 언어 선택기에서 고른 값은 브라우저 `localStorage`에 저장됩니다.
+브라우저에서 서버 주소를 열고 언어 선택기에서 언어를 고릅니다. 저장된 선택이 있으면 우선 사용하고, 없으면 브라우저 언어 목록에서 처음 지원되는 언어를 선택하며 지원 언어가 없으면 영어를 사용합니다. 언어 선택기와 브라우저 언어 매칭은 `app/i18n/`의 카탈로그를 사용합니다. 선택한 값은 브라우저 `localStorage`에 저장됩니다.
+
+### 언어 추가
+
+`app/i18n/<코드>.json`을 추가하고 기존 카탈로그와 같은 메시지 키·자리표시자를 넣은 뒤 `"meta": {"native_name": "日本語"}`처럼 해당 언어의 이름을 지정합니다. 웹 언어 선택기, 브라우저 언어 매칭, CLI `--lang` 선택지는 파일명에서 카탈로그를 자동으로 찾습니다. 테스트를 실행해 키와 자리표시자가 일치하는지 확인합니다.
 
 ## CLI
 
@@ -201,7 +215,7 @@ python=.venv/bin/python
 "$python" -m app config check
 ```
 
-`ddl`과 `load`의 dialect 선택지는 현재 지원 방언에서 가져옵니다. `--lang ko|en`은 각 명령 뒤에 붙여 출력 언어를 고르며 기본값보다 우선합니다. 지정하지 않으면 `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, `LANG` 순으로 확인하고, Windows에서는 시스템 로캘과 UI 언어도 확인합니다. 한국어(`ko*`)는 한국어로, 지원하지 않거나 찾을 수 없는 언어는 영어로 처리합니다. `load`의 `truncate` 또는 `drop_create`는 대상 부모 테이블명과 같은 `--confirm-table` 값이 필요하며, Ctrl+C는 배치 경계에서 적재를 취소하고 이미 커밋된 행을 결과에 표시합니다. 종료 코드는 성공 `0`, 실패 `1`, 확인 거부 `2`, 취소 `130`입니다. DB 비밀번호는 CLI 인자로 받지 않으며 기존 `password_env` 또는 `config/parqbridge.local.toml` 설정을 사용합니다.
+`ddl`과 `load`의 dialect 선택지는 현재 지원 방언에서 가져옵니다. `--lang <코드>`는 각 명령 뒤에 붙여 `app/i18n/` 카탈로그 중 출력 언어를 고르며 기본값보다 우선합니다. 지정하지 않으면 `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, `LANG` 순으로 확인하고, Windows에서는 시스템 로캘과 UI 언어도 확인합니다. 지원되는 로캘은 해당 카탈로그를 사용하고, 지원하지 않거나 찾을 수 없는 언어는 영어로 처리합니다. `load`의 `truncate` 또는 `drop_create`는 대상 부모 테이블명과 같은 `--confirm-table` 값이 필요하며, Ctrl+C는 배치 경계에서 적재를 취소하고 이미 커밋된 행을 결과에 표시합니다. 종료 코드는 성공 `0`, 실패 `1`, 확인 거부 `2`, 취소 `130`입니다. DB 비밀번호는 CLI 인자로 받지 않으며 기존 `password_env` 또는 `config/parqbridge.local.toml` 설정을 사용합니다.
 
 `ddl -o`는 입력 Parquet 또는 Parquet 파일을 출력 대상으로 거부합니다. 기존 출력 파일을 바꾸려면 `--force`를 지정하세요. `ddl`과 `load`는 `--length-scan full|sample`로 길이 측정 범위를 선택할 수 있고 기본값은 `full`입니다.
 

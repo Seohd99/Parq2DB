@@ -8,6 +8,7 @@ import pytest
 
 from app.core.config import AppConfig, DbProfile, ServerConfig, load_config
 from app.core.errors import PBError
+from app.core.languages import supported_languages
 from app.core.model import StringLength, StringLengthMeasurements
 from app.core.string_scans import StringScanManager
 from app.main import DdlOptions, LoadOptions, app
@@ -22,12 +23,17 @@ def test_index_and_static(tmp_path):
     cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
     with client_with(cfg) as c:
         r = c.get("/")
+        app_js = c.get("/static/app.js")
+        en_catalog = c.get("/i18n/en.json")
         assert r.status_code == 200
         assert "ParqBridge" in r.text
         assert 'id="ddl-length-scan"' in r.text
-        assert c.get("/static/app.js").status_code == 200
+        assert app_js.status_code == 200
         assert c.get("/i18n/ko.json").status_code == 200
-        assert c.get("/i18n/en.json").status_code == 200
+        assert en_catalog.status_code == 200
+        for response in (r, app_js, en_catalog):
+            assert response.headers["cache-control"] == "no-cache"
+            assert response.headers.get("etag")
 
 
 def test_status_offline(tmp_path):
@@ -38,6 +44,7 @@ def test_status_offline(tmp_path):
         "kind": "oracle", "online": False, "reason": {"code": "E_DB_NOT_CONFIGURED", "params": {}},
     }
     assert body["db"]["mysql"]["online"] is False
+    assert body["languages"] == supported_languages()
 
 
 def test_length_scan_defaults_to_full_and_is_shared_by_load_options():

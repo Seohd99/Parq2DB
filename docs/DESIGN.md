@@ -8,6 +8,10 @@ The application targets Python 3.14. FastAPI serves the local web UI, which is p
 
 The supported database targets are Oracle 12.2 and later, designed around Oracle 19c; MySQL 8 and later; and PostgreSQL 16 and later. A database profile is optional. Without a usable profile and password, that database remains offline while file inspection and DDL generation continue to work.
 
+## Web UI presentation
+
+The web UI uses hand-written CSS over native HTML controls. It has no CSS framework, build step, web font, image, or remote asset, so it stays usable offline and adds little work to the browser when preview tables are large. Shared CSS tokens drive the light and dark palettes, spacing, borders, focus rings, badges, and status colors. The initial palette follows `prefers-color-scheme`; the header toggle can override it and saves an explicit choice as `parqbridge.theme` in `localStorage`. If storage is unavailable, the current session toggle still works and the system preference remains the default on the next visit.
+
 ## Configuration and secrets
 
 Configuration is read from `config/parqbridge.toml`, then recursively overridden by `config/parqbridge.local.toml`. Both files are local-only; the versioned `config/parqbridge.example.toml` is a safe template. Database passwords come from the configured environment variable or the local configuration file. A password in the main configuration is ignored and produces a warning. Public configuration responses expose the connection target and username, not the password or DSN.
@@ -67,11 +71,11 @@ Every DuckDB connection used by the app sets its time zone to UTC. Timezone-awar
 
 ## Errors, translations, and entry points
 
-API errors and warnings are returned as stable codes with parameters. Their Korean and English text lives in `app/i18n/ko.json` and `app/i18n/en.json`; the browser renders the selected language without requiring a new API request. When a code is added, its definitions and both translations must be updated together.
+API errors and warnings are returned as stable codes with parameters. Their translated text lives in every `app/i18n/*.json` catalog; the browser loads the selected catalog directly. `app/core/languages.py` discovers catalog filenames and each catalog's `meta.native_name`; `/api/status` returns that list for the web selector, while the CLI uses the same list for `--lang` choices and locale matching. A new language needs a catalog with the same message keys and placeholders as the existing catalogs.
 
-The browser honors a valid saved `parqbridge.lang` choice first. Without one, it selects the first supported language in `navigator.languages` (or `navigator.language` when the list is unavailable), mapping `ko*` to Korean and `en*` to English; unsupported preferences default to English. The HTML uses English as its static language and initial copy so that untranslated markup is readable before the language catalog loads. A user selection is saved, while a detected default is not persisted. If `localStorage` is unavailable, browser language detection still works.
+The browser honors a valid saved `parqbridge.lang` choice first. Without one, it selects the first supported language in `navigator.languages` (or `navigator.language` when the list is unavailable), matching the locale to a discovered catalog code; unsupported preferences default to English. The HTML uses English as its static language and initial copy so that untranslated markup is readable before the language catalog loads. A user selection is saved, while a detected default is not persisted. If `localStorage` is unavailable, browser language detection still works. The language selector displays each catalog's self-name from `meta.native_name` in either UI language.
 
-The CLI uses an explicit `--lang` value when supplied. Otherwise it checks `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, and `LANG` in that order, then on Windows checks `locale.getlocale()` and the user UI language, and finally defaults to English. A `ko*` value selects Korean; unsupported values select English.
+The CLI uses an explicit `--lang` value when supplied. Otherwise it checks `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, and `LANG` in that order, then on Windows checks `locale.getlocale()` and the user UI language, and finally defaults to English. A locale matching a discovered catalog code selects that catalog; unsupported values select English. Static files and i18n JSON responses use `Cache-Control: no-cache`, preserving ETag revalidation while preventing heuristic reuse of stale catalogs.
 
 The CLI (`python -m app` with a subcommand) and web app share the same inspection, planning, DDL, and job code. CLI load progress is reported in the terminal, and interrupting a load requests cancellation at a batch boundary.
 

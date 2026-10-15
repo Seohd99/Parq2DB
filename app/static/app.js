@@ -3,6 +3,8 @@
 // The API returns error codes and parameters; translate their messages here.
 const I18N = { lang: "en", dict: {} };
 const LANG_KEY = "parqbridge.lang";
+const THEME_KEY = "parqbridge.theme";
+let LANGUAGES = [];
 const state = {
   status: null,
   file: null,
@@ -25,11 +27,15 @@ const state = {
 function t(key, params = {}) {
   const tmpl = I18N.dict[key];
   if (tmpl === undefined) return key;
-  return tmpl.replace(/\{(\w+)\}/g, (_, k) => {
+  const cleanTemplate = tmpl.replace(/\([^()]*\{\w+\}[^()]*\)/g, (group) => {
+    const fields = [...group.matchAll(/\{(\w+)\}/g)].map((match) => match[1]);
+    return fields.some((field) => params[field] === undefined || params[field] === null) ? "" : group;
+  });
+  return cleanTemplate.replace(/\{(\w+)\}/g, (_, k) => {
     const value = params[k];
     if (value === undefined || value === null) return "";
     return Array.isArray(value) ? value.join(", ") : String(value);
-  });
+  }).replace(/[ \t]{2,}/g, " ").replace(/\s+([,.;:!?])/g, "$1").trim();
 }
 
 function tCode(item) {
@@ -40,11 +46,15 @@ function tCode(item) {
 function preferredLang(languages) {
   for (const candidate of languages) {
     if (typeof candidate !== "string") continue;
-    const normalized = candidate.trim().toLowerCase();
-    if (normalized.startsWith("ko")) return "ko";
-    if (normalized.startsWith("en")) return "en";
+    const base = candidate.trim().toLowerCase().replaceAll("_", "-").split("-", 1)[0];
+    const match = LANGUAGES.find((language) => language.code.toLowerCase() === base);
+    if (match) return match.code;
   }
-  return "en";
+  return defaultLang();
+}
+
+function defaultLang() {
+  return LANGUAGES.find((language) => language.code === "en")?.code || LANGUAGES[0]?.code || "en";
 }
 
 function browserLang() {
@@ -55,7 +65,7 @@ function browserLang() {
 }
 
 async function setLang(lang, save = true) {
-  if (!["ko", "en"].includes(lang)) lang = browserLang();
+  if (!LANGUAGES.some((language) => language.code === lang)) lang = browserLang();
   const res = await fetch(`/i18n/${lang}.json`);
   if (!res.ok) throw new Error("Could not load the selected language.");
   I18N.dict = await res.json();
@@ -67,6 +77,7 @@ async function setLang(lang, save = true) {
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
+  renderTheme();
   if (state.inspection) populateDdlControls();
   render();
 }
@@ -74,9 +85,48 @@ async function setLang(lang, save = true) {
 function savedLang() {
   try {
     const lang = localStorage.getItem(LANG_KEY);
-    if (lang !== null && ["ko", "en"].includes(lang)) return lang;
+    if (lang !== null && LANGUAGES.some((language) => language.code === lang)) return lang;
   } catch (_) { /* continue with browser preferences */ }
   return browserLang();
+}
+
+function populateLanguageOptions(languages) {
+  LANGUAGES = Array.isArray(languages)
+    ? languages.filter((language) => language && typeof language.code === "string" && typeof language.native_name === "string")
+    : [];
+  document.getElementById("lang").replaceChildren(...LANGUAGES.map((language) =>
+    el("option", { value: language.code }, language.native_name),
+  ));
+}
+
+function savedTheme() {
+  try {
+    const theme = localStorage.getItem(THEME_KEY);
+    if (theme === "light" || theme === "dark") return theme;
+  } catch (_) { /* Use the system preference when storage is unavailable. */ }
+  return null;
+}
+
+function currentTheme() {
+  const explicit = document.documentElement.dataset.theme;
+  if (explicit === "light" || explicit === "dark") return explicit;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function renderTheme() {
+  const theme = currentTheme();
+  const button = document.getElementById("theme-toggle");
+  const label = document.getElementById("theme-label");
+  if (!button || !label) return;
+  label.textContent = t(theme === "dark" ? "ui.theme_dark" : "ui.theme_light");
+  button.setAttribute("aria-pressed", String(theme === "dark"));
+  button.setAttribute("aria-label", t("ui.theme_toggle"));
+}
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem(THEME_KEY, theme); } catch (_) { /* The current page still changes. */ }
+  renderTheme();
 }
 
 async function api(path, options = {}) {
@@ -207,9 +257,16 @@ function renderDdl() {
   const warningList = document.getElementById("ddl-warnings");
   const measurementBadge = document.getElementById("ddl-measurement");
   warningList.replaceChildren();
-  document.getElementById("ddl-mappings").replaceChildren();
-  document.getElementById("flatten-previews").replaceChildren();
-  document.getElementById("ddl-output").textContent = result?.ddl || "";
+  const mappingRoot = document.getElementById("ddl-mappings");
+  const mappingContent = document.getElementById("ddl-mapping-content");
+  const previewRoot = document.getElementById("flatten-previews");
+  const previewContent = document.getElementById("flatten-preview-content");
+  const output = document.getElementById("ddl-output");
+  mappingContent.replaceChildren();
+  previewContent.replaceChildren();
+  output.textContent = result?.ddl || "";
+  document.getElementById("ddl-result-tools").hidden = !result;
+  output.hidden = !result;
   measurementBadge.hidden = !result;
   if (result) {
     const scanStatus = result.length_scan_status?.status || state.lengthScan?.status;
@@ -228,14 +285,14 @@ function renderDdl() {
   }
   document.getElementById("ddl-copy").disabled = !result;
   document.getElementById("ddl-download").disabled = !result;
+  mappingRoot.hidden = !result || result.column_mappings.length === 0;
+  previewRoot.hidden = !result || result.previews.length === 0;
   if (!result) {
     renderLoad();
     return;
   }
 
   warningList.replaceChildren(...result.warnings.map((item) => el("li", {}, tCode(item))));
-  const mappingRoot = document.getElementById("ddl-mappings");
-  mappingRoot.append(el("h3", { text: t("ddl.mapping_title") }));
   const mappingTable = el("table", {},
     el("thead", {}, el("tr", {},
       el("th", { text: t("ddl.table") }),
@@ -252,9 +309,9 @@ function renderDdl() {
     ));
   }
   mappingTable.append(mappingBody);
-  mappingRoot.append(mappingTable);
+  mappingContent.append(mappingTable);
 
-  const previews = document.getElementById("flatten-previews");
+  const previews = previewContent;
   for (const preview of result.previews) {
     const section = el("section", { class: "flatten-preview" });
     section.append(el("div", { class: "section-heading" },
@@ -267,12 +324,15 @@ function renderDdl() {
     if (preview.rows.length === 0) {
       section.append(el("p", { class: "muted" }, t("ddl.no_rows")));
     } else {
-      const table = el("table", {}, el("thead", {}, el("tr", {}, ...preview.columns.map((name) => el("th", {}, name)))));
+      const table = el("table", { class: "preview-table" }, el("thead", {}, el("tr", {}, ...preview.columns.map((name) => el("th", { title: name }, name)))));
       const body = el("tbody", {});
       for (const row of preview.rows) {
         body.append(el("tr", {}, ...preview.columns.map((name) => {
           const value = row[name];
-          return el("td", {}, value === null || value === undefined ? t("inspect.null") : typeof value === "object" ? JSON.stringify(value) : String(value));
+          const text = value === null || value === undefined
+            ? t("inspect.null")
+            : typeof value === "object" ? JSON.stringify(value) : String(value);
+          return el("td", { title: text }, text);
         })));
       }
       table.append(body);
@@ -305,15 +365,12 @@ function renderStatus() {
   if (!state.status) return;
   document.getElementById("version").textContent = `v${state.status.version}`;
   const list = document.getElementById("db-list");
+  const offlineReasons = document.getElementById("db-offline-reasons");
+  const offlineDetails = document.getElementById("db-offline-details");
+  const offline = [];
   list.replaceChildren();
   for (const [kind, db] of Object.entries(state.status.db)) {
     const badge = el("span", { class: db.online ? "badge ok" : "badge off" }, t(db.online ? "status.online" : "status.offline"));
-    const parts = [el("strong", {}, t(`db.${kind}`)), " ", badge];
-    if (db.target) parts.push(" ", el("code", {}, `${db.user}@${db.target}`));
-    if (!db.online) {
-      parts.push(el("div", { class: "muted" }, tCode(db.reason)));
-      parts.push(el("div", { class: "offline-help muted" }, t("status.configure_help", { database: t(`db.${kind}`) })));
-    }
     const testButton = el("button", {
       type: "button",
       class: `db-test-button${state.testingDb[kind] ? " is-loading" : ""}`,
@@ -321,14 +378,20 @@ function renderStatus() {
       disabled: !db.online || Boolean(state.testingDb[kind]),
       "aria-busy": Boolean(state.testingDb[kind]),
     }, t("status.test_connection"));
-    parts.push(" ", testButton);
+    const parts = [el("strong", {}, t(`db.${kind}`)), badge, testButton];
     if (state.connectionTests[kind]) {
-      parts.push(el("div", { class: "muted" }, t("status.test_result", {
+      parts.push(el("span", { class: "muted" }, t("status.test_result", {
         version: state.connectionTests[kind].server_version,
       })));
     }
     list.append(el("li", {}, ...parts));
+    if (!db.online) offline.push([kind, db]);
   }
+  offlineReasons.replaceChildren(...offline.map(([kind, db]) => el("li", {}, t("status.offline_reason", {
+    section: `db.${kind}`,
+    reason: db.reason ? tCode(db.reason) : t("status.offline"),
+  }))));
+  offlineDetails.hidden = offline.length === 0;
   document.getElementById("config-warnings").replaceChildren(
     ...state.status.warnings.map((warning) => el("li", {}, tCode(warning))),
   );
@@ -349,7 +412,7 @@ function renderLoad() {
     : "";
   const offlineHelp = document.getElementById("load-offline-help");
   offlineHelp.hidden = !offline;
-  offlineHelp.textContent = offline ? t("status.configure_help", { database: t(`db.${kind}`) }) : "";
+  offlineHelp.textContent = offline ? t("load.offline_help") : "";
   const measurementWait = document.getElementById("load-measurement-wait");
   measurementWait.hidden = !scanPending;
   if (scanPending) {
@@ -506,20 +569,23 @@ function renderPreview() {
   const preview = state.preview;
   if (!preview) return;
   const table = document.getElementById("preview-table");
-  const thead = el("thead", {}, el("tr", {}, ...preview.columns.map((column) => el("th", {}, column))));
+  const thead = el("thead", {}, el("tr", {}, ...preview.columns.map((column) => el("th", { title: column }, column))));
   const tbody = el("tbody", {});
   for (const row of preview.rows) {
     const cells = preview.columns.map((column) => {
       const value = row[column];
       if (value !== null && typeof value === "object") {
         const details = el("details", { class: "json-value" }, el("summary", {}, t("inspect.view_json")));
-        details.append(el("pre", {}, JSON.stringify(value, null, 2)));
-        return el("td", {}, details);
+        const fullValue = JSON.stringify(value, null, 2);
+        details.append(el("pre", {}, fullValue));
+        return el("td", { title: fullValue }, details);
       }
-      return el("td", {}, value === null || value === undefined ? t("inspect.null") : String(value));
+      const text = value === null || value === undefined ? t("inspect.null") : String(value);
+      return el("td", { title: text }, text);
     });
     tbody.append(el("tr", {}, ...cells));
   }
+  table.classList.add("preview-table");
   table.replaceChildren(thead, tbody);
   const total = preview.total_rows;
   const first = total === 0 ? 0 : preview.offset + 1;
@@ -670,9 +736,15 @@ function setTab(tab) {
 }
 
 async function init() {
-  const lang = savedLang();
-  document.getElementById("lang").value = lang;
+  const theme = savedTheme();
+  if (theme) document.documentElement.dataset.theme = theme;
   document.getElementById("lang").addEventListener("change", (event) => setLang(event.target.value));
+  document.getElementById("theme-toggle").addEventListener("click", () => {
+    setTheme(currentTheme() === "dark" ? "light" : "dark");
+  });
+  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+    if (!document.documentElement.dataset.theme) renderTheme();
+  });
   document.getElementById("tab-upload").addEventListener("click", () => setTab("upload"));
   document.getElementById("tab-local").addEventListener("click", () => setTab("local"));
   document.getElementById("db-list").addEventListener("click", async (event) => {
@@ -877,6 +949,9 @@ async function init() {
   document.getElementById("ddl-mode").addEventListener("change", updateDdlControls);
   document.getElementById("ddl-dialect").addEventListener("change", updateDdlControls);
   try { state.status = await api("/api/status"); } catch (error) { showError(error); }
+  populateLanguageOptions(state.status?.languages || []);
+  const lang = savedLang();
+  document.getElementById("lang").value = lang;
   await setLang(lang, false);
 }
 

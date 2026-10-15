@@ -2,11 +2,21 @@ English | [한국어](README.ko.md)
 
 # ParqBridge
 
-ParqBridge is a local web tool for inspecting the schema and data in one Parquet file and generating DDL for Oracle (12.2+, designed around 19c), MySQL 8+, and PostgreSQL 16+. When a database profile is configured, you can also test the connection, create a table, load rows in batches, and compare row counts after loading. It runs on FastAPI and vanilla JavaScript with no build chain.
+ParqBridge is a local web tool for inspecting the schema and data in one Parquet file and generating DDL for Oracle (12.2+, designed around 19c), MySQL 8+, and PostgreSQL 16+. When a database profile is configured, you can also test the connection, create a table, load rows in batches, and compare row counts after loading. It runs on FastAPI and vanilla JavaScript with no build chain. The web interface follows the system light/dark preference and includes a saved theme toggle.
 
 For the current architecture and design constraints, see [Design](docs/DESIGN.md).
 
 The default server address is `http://127.0.0.1:8765`. If a database profile is missing or incomplete, the app runs in offline mode, where inspection and DDL generation remain available.
+
+## Screenshots
+
+Sample data: a generated 2,500-row `orders.parquet` with struct and list columns.
+
+| Select a file | Inspect schema and statistics |
+|---|---|
+| ![File selection and database status](docs/screenshots/en-select.png) | ![File overview, column statistics, and schema tree](docs/screenshots/en-inspect.png) |
+| **Preview data** | **Generate DDL (PostgreSQL, child tables)** |
+| ![Paged data preview](docs/screenshots/en-preview.png) | ![Generated DDL](docs/screenshots/en-ddl.png) |
 
 ## Requirements
 
@@ -167,7 +177,11 @@ macOS/Linux (bash):
 
 Running Uvicorn directly uses its default address, `127.0.0.1:8000`.
 
-Open the server address in a browser and choose Korean or English with the language selector. A saved choice takes priority; otherwise the UI uses the first supported browser language (`ko*` or `en*`) and defaults to English. A language chosen with the selector is saved in browser `localStorage`.
+Open the server address in a browser and choose a language with the selector. A saved choice takes priority; otherwise the UI uses the first supported browser language and defaults to English. The selector and browser-language matching use the catalogs in `app/i18n/`; a language chosen with the selector is saved in browser `localStorage`.
+
+### Adding a language
+
+Add `app/i18n/<code>.json` with the same message keys and placeholders as the existing catalogs, plus `"meta": {"native_name": "日本語"}` (use that language's native name). The web selector, browser-language matching, and CLI `--lang` choices discover catalogs from their filenames. Run the test suite to check catalog keys and placeholders.
 
 ## CLI
 
@@ -201,7 +215,7 @@ python=.venv/bin/python
 "$python" -m app config check
 ```
 
-The dialect choices for `ddl` and `load` come from the currently supported dialects. Add `--lang ko|en` after each command to choose its output language; an explicit value overrides the default. Without it, the CLI checks `PARQBRIDGE_LANG`, then `LC_ALL`, `LC_MESSAGES`, and `LANG`; Windows also checks the system locale and UI language. Korean preferences (`ko*`) select Korean, while unsupported or missing preferences default to English. The `truncate` or `drop_create` policy for `load` requires a `--confirm-table` value that matches the target parent table name. Ctrl+C cancels loading at a batch boundary and the result reports rows that were already committed. Exit codes are success `0`, failure `1`, confirmation denied `2`, and cancelled `130`. The CLI does not accept database passwords as arguments; it uses the existing `password_env` or `config/parqbridge.local.toml` setting.
+The dialect choices for `ddl` and `load` come from the currently supported dialects. Add `--lang <code>` after each command to choose an output language from the catalogs in `app/i18n/`; an explicit value overrides the default. Without it, the CLI checks `PARQBRIDGE_LANG`, then `LC_ALL`, `LC_MESSAGES`, and `LANG`; Windows also checks the system locale and UI language. Supported locale preferences select their matching catalog, while unsupported or missing preferences default to English. The `truncate` or `drop_create` policy for `load` requires a `--confirm-table` value that matches the target parent table name. Ctrl+C cancels loading at a batch boundary and the result reports rows that were already committed. Exit codes are success `0`, failure `1`, confirmation denied `2`, and cancelled `130`. The CLI does not accept database passwords as arguments; it uses the existing `password_env` or `config/parqbridge.local.toml` setting.
 
 `ddl -o` rejects the input Parquet file and any Parquet file as an output target. Specify `--force` to replace an existing output file. `ddl` and `load` support `--length-scan full|sample` to choose the length measurement scope; the default is `full`.
 

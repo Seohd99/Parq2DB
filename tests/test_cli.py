@@ -15,6 +15,19 @@ from app.core.dialects import SUPPORTED_DIALECTS
 TEST_PASSWORD = "cli-test-only-secret-value"
 
 
+def test_message_formats_missing_optional_parameters_cleanly():
+    assert cli._message(
+        "error.E_CONFIG_INVALID",
+        "en",
+        {"file": "settings.toml", "detail": "invalid TOML"},
+    ) == "Config error: settings.toml invalid TOML"
+    assert cli._message(
+        "error.E_CONFIG_INVALID",
+        "en",
+        {"file": "settings.toml", "key": "db.port", "expected": "positive int"},
+    ) == "Config error: settings.toml db.port (expected: positive int)"
+
+
 def configure_cli(
     monkeypatch,
     tmp_path: Path,
@@ -247,6 +260,14 @@ def test_cli_language_option_overrides_environment(monkeypatch):
     assert cli._parser().parse_args(["config", "check"]).lang == "en"
     assert cli._parser().parse_args(["--lang", "ko", "config", "check"]).lang == "ko"
     assert cli._parser().parse_args(["config", "check", "--lang", "ko"]).lang == "ko"
+
+
+def test_cli_language_choices_follow_catalogs():
+    parser = cli._parser()
+    codes = cli.language_codes()
+    assert parser._option_string_actions["--lang"].choices == codes
+    commands = next(action for action in parser._actions if action.dest == "command")
+    assert commands.choices["inspect"]._option_string_actions["--lang"].choices == codes
 
 
 def test_ddl_output_file_and_warnings_stderr(monkeypatch, capsys, parquet_path, tmp_path):

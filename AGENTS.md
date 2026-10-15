@@ -11,7 +11,7 @@ ParqBridge is a local web and CLI tool for inspecting one Parquet file, generati
 - `app/core/inspect.py`, `flatten.py`, `model.py`: Parquet inspection, preview and flatten plans, and shared table/column models.
 - `app/core/typemap.py`, `ddl_oracle.py`, `ddl_mysql.py`, `ddl_postgres.py`, `dialects.py`: type mapping, DDL emitters, and supported database dialects. See the **Main type mapping** section in `README.md` for the mapping table.
 - `app/core/db.py`, `load_oracle.py`, `load_mysql.py`, `load_postgres.py`, `jobs.py`: database connections, batch inserts, background load jobs, progress, cancellation, and row-count checks.
-- `app/core/errors.py`, `app/i18n/ko.json`, `app/i18n/en.json`: error and warning codes with Korean and English messages.
+- `app/core/errors.py`, `app/core/languages.py`, `app/i18n/*.json`: error and warning codes, catalog discovery, and translated messages.
 - `app/static/`: HTML, CSS, and vanilla JavaScript; there is no frontend build chain.
 - `config/parqbridge.example.toml`: safe configuration template. Local configuration files are ignored by git.
 - `tests/`, `tests/golden/`: unit and optional database integration tests, plus DDL golden files.
@@ -51,7 +51,7 @@ The default server bind is `127.0.0.1`. Database profiles are optional; a missin
 - Stream database loads in batches; never materialize the whole Parquet file in memory. Commit each batch; the default batch size is 10,000 rows. Oracle uses `executemany` array binds and `setinputsizes` for LOBs; MySQL and PostgreSQL use `executemany`.
 - Run loads through background jobs with progress polling, cancellation, and failure location reporting.
 - Keep DDL generation as pure functions from `TableModel`/`ColumnModel` to SQL. Compare DDL output with files in `tests/golden/`.
-- Keep user-facing API errors and warnings as codes (`E_*`, `W_*`) with parameters; translate messages in both i18n files.
+- Keep user-facing API errors and warnings as codes (`E_*`, `W_*`) with parameters; translate messages in every `app/i18n/*.json` catalog.
 
 ## Safety and data handling
 
@@ -65,7 +65,8 @@ The default server bind is `127.0.0.1`. Database profiles are optional; a missin
 
 ## Change and test rules
 
-- When adding an error or warning code, update `app/core/errors.py` and both `app/i18n/ko.json` and `app/i18n/en.json`; `tests/test_i18n.py` checks consistency.
+- When adding an error or warning code, update `app/core/errors.py` and every `app/i18n/*.json` catalog; `tests/test_i18n.py` checks consistency.
+- To add a language, add `app/i18n/<code>.json` with `meta.native_name` and the same message keys and placeholders as every existing catalog. The server discovers catalog filenames for the web selector and CLI, so do not add hard-coded language choices.
 - Generate test Parquet files in code. Do not commit generated fixtures under `tests/fixtures/`.
 - Database integration tests use the `oracle`, `mysql`, and `postgres` markers and run only when the corresponding profile is configured; otherwise they skip.
 - Update DDL golden files only when a DDL change is intentional. To refresh them, set `UPDATE_GOLDEN=1` for `tests/test_ddl.py`, review every file under `tests/golden/`, then run the full suite again.
