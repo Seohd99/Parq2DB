@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pytest
 
 from app.core.config import load_config
 from app.core.db import close_quietly, connect, count_table, driver_code, table_exists
@@ -111,28 +110,8 @@ def _round_trip(profile, dialect, tmp_path):
                 close_quietly(connection)
 
 
-@pytest.mark.oracle
-def test_oracle_create_insert_count_korean_round_trip_and_drop(tmp_path):
-    profile = load_config().db["oracle"]
-    if not profile.online:
-        pytest.skip(profile.offline_reason or "Oracle profile is offline")
-    _round_trip(profile, "oracle", tmp_path)
-
-
-@pytest.mark.mysql
-def test_mysql_create_insert_count_korean_round_trip_and_drop(tmp_path):
-    profile = load_config().db["mysql"]
-    if not profile.online:
-        pytest.skip(profile.offline_reason or "MySQL profile is offline")
-    _round_trip(profile, "mysql", tmp_path)
-
-
-@pytest.mark.postgres
-def test_postgres_create_insert_count_korean_round_trip_and_drop(tmp_path):
-    profile = load_config().db["postgres"]
-    if not profile.online:
-        pytest.skip(profile.offline_reason or "PostgreSQL profile is offline")
-    _round_trip(profile, "postgres", tmp_path)
+def test_create_insert_count_korean_round_trip_and_drop(db_profile, tmp_path):
+    _round_trip(db_profile, db_profile.kind, tmp_path)
 
 
 INSERT_TARGET_DDL = {
@@ -235,13 +214,5 @@ def _insert_into_existing(profile, dialect, tmp_path):
                 close_quietly(connection)
 
 
-@pytest.mark.parametrize("dialect", [
-    pytest.param("oracle", marks=pytest.mark.oracle),
-    pytest.param("mysql", marks=pytest.mark.mysql),
-    pytest.param("postgres", marks=pytest.mark.postgres),
-])
-def test_insert_into_existing_table_matches_names_and_skips_computed_columns(dialect, tmp_path):
-    profile = load_config().db[dialect]
-    if not profile.online:
-        pytest.skip(profile.offline_reason or f"{dialect} profile is offline")
-    _insert_into_existing(profile, dialect, tmp_path)
+def test_insert_into_existing_table_matches_names_and_skips_computed_columns(db_profile, tmp_path):
+    _insert_into_existing(db_profile, db_profile.kind, tmp_path)

@@ -2,6 +2,8 @@ English | [한국어](README.ko.md)
 
 # ParqBridge
 
+[![CI](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml)
+
 ## When should you use ParqBridge?
 
 - Convert Parquet files into Oracle, PostgreSQL, or MySQL tables
@@ -31,13 +33,13 @@ Sample data: a generated 2,500-row `orders.parquet` with struct and list columns
 
 ## Requirements
 
-- Verified on Windows 10/11
+- Desktop use verified on Windows 10/11; automated tests run on Windows and Ubuntu
 - Python 3.14 (installed automatically by uv if it is missing)
 - A project-specific `.venv`
 - Dependencies pinned in `pyproject.toml` and locked in `uv.lock`
 - Connection details for Oracle 12.2+, MySQL 8+, or PostgreSQL 16+ if you want to load data into a database
 
-Commands for macOS/Linux are also provided, but app execution and tests have not been verified on those platforms.
+Ubuntu automated test results are available in CI. Desktop browser use on Linux and execution on macOS have not been verified.
 
 ## Installation
 
@@ -391,6 +393,22 @@ macOS/Linux (bash):
 .venv/bin/python -m pytest -q -rs
 ```
 
+### Continuous integration
+
+[GitHub Actions](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml) runs on pushes to `main`, pull requests, and manual dispatch. Unit tests run on Windows and Ubuntu with Python 3.14 and the committed `uv.lock`. Separate Ubuntu jobs start disposable PostgreSQL 16.15, MySQL 8.4.11, and Oracle Free 23.26.3 service containers. Actions and container images are pinned to commit SHAs and image digests.
+
+Each database runs nine integration cases: create/load/count and Korean/UTC timestamp round trips; INSERT into existing tables with defaults and computed columns; JSON, child-table, and explode modes; both parent-key append policies; cancellation after a committed batch; and case-distinct column values. All tables use the `PB_TEST_` prefix and are cleaned up. CI fails if its database profile is missing rather than silently skipping tests. JUnit reports are downloadable from each workflow run's artifacts.
+
+The Oracle job checks the Free container version listed above; it does not establish compatibility with every Oracle 12.2/19c installation. The badge links to actual run results, including failures and reruns.
+
+To require a dedicated local test profile explicitly:
+
+```bash
+uv run pytest tests/integration -m postgres --db-config=/path/to/test.toml --require-db -q -rs
+```
+
+The explicit TOML uses the normal profile format with `password_env`; it is isolated from `config/parqbridge.local.toml`. CI creates its profile under the runner's temporary directory with `tools/ci_database_config.py` and uses public passwords only for its disposable containers.
+
 ### Changing dependencies
 
 `pyproject.toml` is the single source of dependency pins: runtime packages are in `[project].dependencies` and test packages are in the `dev` dependency group. After changing a pin, regenerate the lock file and the pip requirements file, then run the full suite. Do not edit `uv.lock` or `requirements.txt` by hand; `tests/test_packaging.py` fails when they drift from `pyproject.toml`.
@@ -451,7 +469,7 @@ The script outputs JSON with the selected file's size, row count and number of r
 
 ## Platform-specific code and verification notes
 
-- Automated tests and app usage have been checked on Windows 10/11. Commands for macOS/Linux are provided, but those platforms have not been run or verified.
+- Desktop app usage has been checked on Windows 10/11. CI runs automated tests on Windows and Ubuntu 24.04; Linux desktop browser use and execution on macOS have not been verified.
 - RSS measurement in `tools/measure_large_parquet.py` uses Windows `psapi.GetProcessMemoryInfo`.
 - Path validation uses platform path APIs and checks junctions when the Windows junction API is available. The symlink escape test in `tests/test_files.py` is skipped if the test environment does not allow symlink creation.
 - Upload filename cleanup also normalizes Windows backslashes as path separators.
