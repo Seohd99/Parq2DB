@@ -33,13 +33,13 @@ ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Orac
 
 ## 요구사항
 
-- Windows 10/11에서 검증
+- Windows 10/11에서 데스크톱 사용 검증, Windows·Ubuntu에서 자동 테스트 실행
 - Python 3.14 (없으면 uv가 자동으로 설치)
 - 프로젝트 전용 `.venv`
 - `pyproject.toml`에 고정하고 `uv.lock`으로 잠근 의존성
 - DB 적재를 쓸 때는 Oracle 12.2+, MySQL 8+, PostgreSQL 16+ 중 하나의 접속 정보
 
-macOS/Linux 명령도 함께 제공하지만, 앱 실행과 테스트는 해당 환경에서 검증하지 않았습니다.
+Ubuntu 자동 테스트 결과는 CI에서 확인할 수 있습니다. Linux 데스크톱 브라우저 사용과 macOS 실행은 검증하지 않았습니다.
 
 ## 설치
 
@@ -469,7 +469,7 @@ UPDATE_GOLDEN=1 .venv/bin/python -m pytest -q tests/test_ddl.py
 
 ## 플랫폼별 코드·검증 참고
 
-- 자동 테스트와 앱 사용은 Windows 10/11에서 확인했습니다. macOS/Linux용 명령은 제공하지만 해당 플랫폼에서 실행하거나 검증하지 않았습니다.
+- 데스크톱 앱 사용은 Windows 10/11에서 확인했습니다. CI는 Windows·Ubuntu 24.04에서 자동 테스트를 실행하며, Linux 데스크톱 브라우저 사용과 macOS 실행은 검증하지 않았습니다.
 - `tools/measure_large_parquet.py`의 RSS 측정은 Windows `psapi.GetProcessMemoryInfo`를 사용합니다.
 - 경로 검증은 플랫폼 경로 API를 사용하고, Windows junction API가 있는 경우 junction도 검사합니다. `tests/test_files.py`의 심볼릭 링크 탈출 테스트는 테스트 환경에서 링크 생성을 허용하지 않으면 skip합니다.
 - 업로드 파일명 정리 과정은 Windows 백슬래시도 경로 구분자로 정규화합니다.

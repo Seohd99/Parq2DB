@@ -33,13 +33,13 @@ Sample data: a generated 2,500-row `orders.parquet` with struct and list columns
 
 ## Requirements
 
-- Verified on Windows 10/11
+- Desktop use verified on Windows 10/11; automated tests run on Windows and Ubuntu
 - Python 3.14 (installed automatically by uv if it is missing)
 - A project-specific `.venv`
 - Dependencies pinned in `pyproject.toml` and locked in `uv.lock`
 - Connection details for Oracle 12.2+, MySQL 8+, or PostgreSQL 16+ if you want to load data into a database
 
-Commands for macOS/Linux are also provided, but app execution and tests have not been verified on those platforms.
+Ubuntu automated test results are available in CI. Desktop browser use on Linux and execution on macOS have not been verified.
 
 ## Installation
 
@@ -469,7 +469,7 @@ The script outputs JSON with the selected file's size, row count and number of r
 
 ## Platform-specific code and verification notes
 
-- Automated tests and app usage have been checked on Windows 10/11. Commands for macOS/Linux are provided, but those platforms have not been run or verified.
+- Desktop app usage has been checked on Windows 10/11. CI runs automated tests on Windows and Ubuntu 24.04; Linux desktop browser use and execution on macOS have not been verified.
 - RSS measurement in `tools/measure_large_parquet.py` uses Windows `psapi.GetProcessMemoryInfo`.
 - Path validation uses platform path APIs and checks junctions when the Windows junction API is available. The symlink escape test in `tests/test_files.py` is skipped if the test environment does not allow symlink creation.
 - Upload filename cleanup also normalizes Windows backslashes as path separators.
