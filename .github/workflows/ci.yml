@@ -32,7 +32,7 @@ jobs:
           uv run --frozen pytest -q -rs --strict-markers --strict-config --ignore=tests/integration --junitxml=unit-results.xml
       - name: Publish test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unit-${{ matrix.os }}
           path: unit-results.xml
@@ -66,7 +66,7 @@ jobs:
           uv run --frozen pytest -q -rs --strict-markers --strict-config tests/integration -m postgres --db-config="$RUNNER_TEMP/database.toml" --require-db --junitxml=postgres-results.xml
       - name: Publish test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: postgres-integration
           path: postgres-results.xml
@@ -100,7 +100,7 @@ jobs:
           uv run --frozen pytest -q -rs --strict-markers --strict-config tests/integration -m mysql --db-config="$RUNNER_TEMP/database.toml" --require-db --junitxml=mysql-results.xml
       - name: Publish test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mysql-integration
           path: mysql-results.xml
@@ -133,7 +133,7 @@ jobs:
           uv run --frozen pytest -q -rs --strict-markers --strict-config tests/integration -m oracle --db-config="$RUNNER_TEMP/database.toml" --require-db --junitxml=oracle-results.xml
       - name: Publish test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oracle-integration
           path: oracle-results.xml
