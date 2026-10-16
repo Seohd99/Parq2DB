@@ -32,16 +32,52 @@ Sample data: a generated 2,500-row `orders.parquet` with struct and list columns
 ## Requirements
 
 - Verified on Windows 10/11
-- Python 3.14
+- Python 3.14 (installed automatically by uv if it is missing)
 - A project-specific `.venv`
-- Dependencies pinned in `requirements.txt`
+- Dependencies pinned in `pyproject.toml` and locked in `uv.lock`
 - Connection details for Oracle 12.2+, MySQL 8+, or PostgreSQL 16+ if you want to load data into a database
 
 Commands for macOS/Linux are also provided, but app execution and tests have not been verified on those platforms.
 
 ## Installation
 
-Clone the repository, then prepare the virtual environment and dependencies.
+### Recommended: uv
+
+[uv](https://docs.astral.sh/uv/) prepares Python 3.14, the project `.venv`, and the locked dependencies in one step. Install uv once by following its [installation guide](https://docs.astral.sh/uv/getting-started/installation/), for example:
+
+PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+macOS/Linux (bash):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then clone the repository and start the app from the repository root:
+
+```bash
+git clone "https://github.com/Seohd99/ParqBridge.git"
+cd ParqBridge
+uv run --no-dev parqbridge
+```
+
+On the first run, uv downloads Python 3.14 if no matching interpreter is found (`.python-version`), creates `.venv`, installs the versions recorded in `uv.lock`, and starts the web server at `127.0.0.1:8765`. Later runs reuse the environment. `--no-dev` leaves out the test-only packages. No configuration file is required to start; see [Configuration](#configuration) for local folders and databases.
+
+To run the unit tests, omit `--no-dev` so the `dev` dependency group is installed:
+
+```bash
+uv run pytest -q -rs
+```
+
+uv installs ParqBridge in editable mode, so configuration and uploads still resolve under the repository's `config/` and `workspace/` folders. Do not use `--no-editable`.
+
+### Alternative: pip
+
+If you already manage Python 3.14 yourself, prepare the virtual environment and dependencies with pip. `requirements.txt` is generated from `uv.lock` and includes the test packages.
 
 PowerShell:
 
@@ -63,7 +99,7 @@ python3.14 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Run the dependency check and unit tests from the repository root.
+Run the dependency check and unit tests from the repository root with the pip-managed environment.
 
 PowerShell:
 
@@ -82,7 +118,9 @@ macOS/Linux (bash):
 
 ## Configuration
 
-Copy the example file to create a local configuration file. The actual configuration file is ignored by git.
+A configuration file is optional. Without one, the app starts with default settings: every database stays offline, uploaded Parquet files can be inspected and turned into DDL, and local-path selection is unavailable because no allowed roots are configured.
+
+To select local files or configure databases, copy the example file to create a local configuration file. The actual configuration file is ignored by git.
 
 ```powershell
 Copy-Item config\parqbridge.example.toml config\parqbridge.toml
@@ -172,7 +210,13 @@ export PARQBRIDGE_CONFIG="/path/to/parqbridge.toml"
 
 Start the app using the host and port in the configuration. The default is `127.0.0.1:8765`.
 
-PowerShell:
+With uv:
+
+```bash
+uv run --no-dev parqbridge
+```
+
+With a pip-managed environment, PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe -m app
@@ -196,7 +240,17 @@ Add `app/i18n/<code>.json` with the same message keys and placeholders as the ex
 
 ## CLI
 
-`python -m app` continues to start the web server as before. Run command-line tasks with the Python interpreter in `.venv`; the input Parquet path must be under `[server].allowed_roots` in the configuration. The file is opened read-only at its original location.
+`python -m app` and `parqbridge` with no subcommand start the web server. Run command-line tasks with the Python interpreter in `.venv`, or with `uv run --no-dev parqbridge <command>`; the input Parquet path must be under `[server].allowed_roots` in the configuration. The file is opened read-only at its original location.
+
+uv:
+
+```bash
+uv run --no-dev parqbridge --help
+uv run --no-dev parqbridge inspect "D:\data\part.parquet"
+uv run --no-dev parqbridge ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
+```
+
+The examples below use a pip-managed environment; each `-m app` form also works as `uv run --no-dev parqbridge`.
 
 PowerShell:
 
@@ -232,7 +286,7 @@ The dialect choices for `ddl` and `load` come from the currently supported diale
 
 `ddl -o` rejects the input Parquet file and any Parquet file as an output target. Specify `--force` to replace an existing output file. `ddl` and `load` support `--length-scan full|sample` to choose the length measurement scope; the default is `full`. Repeat `--column NAME` to include only those top-level columns; without it, every column is included. `load --insert-only` inserts into the existing `--table` without `CREATE`, matching file columns to table columns by name; it cannot be combined with `--if-exists`, `--mode child|explode`, `--parent-key`, or `--explode-column`.
 
-As an optional step, you can install the editable console script. After installing the existing dependencies, run the command below directly to use the `parqbridge` command.
+uv provides the `parqbridge` command automatically. In a pip-managed environment, you can install it as an optional step after installing the dependencies. Keep the install editable (`-e`) so configuration and uploads resolve under the repository; a non-editable `pip install .` is not supported.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
@@ -319,7 +373,13 @@ For `truncate` and `drop_create`, the confirmation dialog requires you to re-ent
 
 Run the full test suite.
 
-PowerShell:
+uv:
+
+```bash
+uv run pytest -q -rs
+```
+
+pip-managed environment, PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q -rs
@@ -329,6 +389,15 @@ macOS/Linux (bash):
 
 ```bash
 .venv/bin/python -m pytest -q -rs
+```
+
+### Changing dependencies
+
+`pyproject.toml` is the single source of dependency pins: runtime packages are in `[project].dependencies` and test packages are in the `dev` dependency group. After changing a pin, regenerate the lock file and the pip requirements file, then run the full suite. Do not edit `uv.lock` or `requirements.txt` by hand; `tests/test_packaging.py` fails when they drift from `pyproject.toml`.
+
+```bash
+uv lock
+uv export --format requirements-txt --no-hashes --no-emit-project -o requirements.txt
 ```
 
 Integration tests run only when the corresponding database profile is online. Without a profile, tests marked `oracle`/`mysql`/`postgres` are skipped with a reason. When a database is used, tests create and clean up only `PB_TEST_` tables.

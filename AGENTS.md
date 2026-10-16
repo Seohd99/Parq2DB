@@ -22,7 +22,14 @@ ParqBridge is a local web and CLI tool for inspecting one Parquet file, generati
 
 Use Python 3.14 and a project-local virtual environment. Do not install dependencies or change system settings on a user's behalf without their approval.
 
-PowerShell:
+Recommended (uv; `.python-version` selects Python 3.14, `uv.lock` pins every package):
+
+```bash
+uv run --no-dev parqbridge   # start the app
+uv run pytest -q -rs         # tests need the dev dependency group
+```
+
+Alternative with pip, PowerShell:
 
 ```powershell
 py -3.14 -m venv .venv
@@ -46,7 +53,7 @@ The default server bind is `127.0.0.1`. Database profiles are optional; a missin
 
 ## Fixed implementation decisions
 
-- Keep Python 3.14, FastAPI, and vanilla JavaScript with no frontend build chain. Dependency versions are pinned in `requirements.txt`.
+- Keep Python 3.14, FastAPI, and vanilla JavaScript with no frontend build chain. Dependency versions are pinned in `pyproject.toml` (runtime in `[project].dependencies`, tests in the `dev` group). After changing a pin, run `uv lock` and `uv export --format requirements-txt --no-hashes --no-emit-project -o requirements.txt`; never edit `uv.lock` or `requirements.txt` by hand.
 - Use `pyarrow.parquet.ParquetFile` for metadata, schema, and `iter_batches`. Use DuckDB `read_parquet` for paged previews and child/explode transformations.
 - Stream database loads in batches; never materialize the whole Parquet file in memory. Commit each batch; the default batch size is 10,000 rows. Oracle uses `executemany` array binds and `setinputsizes` for LOBs; MySQL and PostgreSQL use `executemany`.
 - Run loads through background jobs with progress polling, cancellation, and failure location reporting.

@@ -4,11 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "parqbridge"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local Parquet inspection, DDL, and database loading tool"
 requires-python = ">=3.14"
 license = "MIT"
 license-files = ["LICENSE"]
+# Single source of truth for dependencies. Versions are pinned for repeatable installs;
+# document intentional changes in docs/DESIGN.md and regenerate uv.lock and requirements.txt.
+dependencies = [
+    "fastapi==0.143.0",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.32",
+    "pyarrow==26.0.0",
+    "duckdb==1.5.6",
+    "oracledb==26.0.1",
+    "pymysql==1.2.3",
+    "psycopg[binary]==3.3.6",
+    "tzdata==2026.5",  # Needed on Windows for _json_safe UTC timestamp normalization.
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "httpx==0.28.1",  # Required by fastapi.testclient.TestClient.
+]
 
 [project.scripts]
 parqbridge = "app.cli:main"

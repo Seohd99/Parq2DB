@@ -32,16 +32,52 @@ ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Orac
 ## 요구사항
 
 - Windows 10/11에서 검증
-- Python 3.14
+- Python 3.14 (없으면 uv가 자동으로 설치)
 - 프로젝트 전용 `.venv`
-- `requirements.txt`에 고정된 의존성
+- `pyproject.toml`에 고정하고 `uv.lock`으로 잠근 의존성
 - DB 적재를 쓸 때는 Oracle 12.2+, MySQL 8+, PostgreSQL 16+ 중 하나의 접속 정보
 
 macOS/Linux 명령도 함께 제공하지만, 앱 실행과 테스트는 해당 환경에서 검증하지 않았습니다.
 
 ## 설치
 
-저장소를 받은 뒤 가상환경과 의존성을 준비합니다.
+### 권장: uv
+
+[uv](https://docs.astral.sh/uv/)는 Python 3.14, 프로젝트 `.venv`, 잠금 파일에 기록된 의존성을 한 번에 준비합니다. [설치 안내](https://docs.astral.sh/uv/getting-started/installation/)에 따라 uv를 한 번 설치합니다. 예:
+
+PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+macOS/Linux (bash):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+저장소를 받은 뒤 저장소 루트에서 앱을 실행합니다.
+
+```bash
+git clone "https://github.com/Seohd99/ParqBridge.git"
+cd ParqBridge
+uv run --no-dev parqbridge
+```
+
+처음 실행하면 uv가 `.python-version`에 맞는 인터프리터가 없을 때 Python 3.14를 내려받고, `.venv`를 만들고, `uv.lock`에 기록된 버전을 설치한 뒤 `127.0.0.1:8765`에서 웹 서버를 시작합니다. 이후 실행은 같은 환경을 재사용합니다. `--no-dev`는 테스트 전용 패키지를 제외합니다. 실행에 설정 파일은 필요하지 않습니다. 로컬 폴더와 DB 설정은 [설정](#설정)을 참고합니다.
+
+단위 테스트를 실행할 때는 `dev` 의존성 그룹이 설치되도록 `--no-dev`를 빼고 실행합니다.
+
+```bash
+uv run pytest -q -rs
+```
+
+uv는 ParqBridge를 editable 모드로 설치하므로 설정과 업로드 파일은 계속 저장소의 `config/`, `workspace/` 폴더를 기준으로 찾습니다. `--no-editable`은 사용하지 않습니다.
+
+### 대안: pip
+
+Python 3.14를 직접 관리한다면 pip로 가상환경과 의존성을 준비할 수 있습니다. `requirements.txt`는 `uv.lock`에서 생성되며 테스트 패키지도 포함합니다.
 
 PowerShell:
 
@@ -63,7 +99,7 @@ python3.14 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-설치 확인과 단위 테스트는 저장소 루트에서 실행합니다.
+pip로 만든 환경의 설치 확인과 단위 테스트는 저장소 루트에서 실행합니다.
 
 PowerShell:
 
@@ -82,7 +118,9 @@ macOS/Linux (bash):
 
 ## 설정
 
-예시 파일을 복사해 로컬 설정을 만듭니다. 실제 설정 파일은 gitignore 대상입니다.
+설정 파일은 선택 사항입니다. 설정 파일이 없으면 기본값으로 실행되며, 모든 DB는 오프라인 상태이고, 업로드한 Parquet 파일의 분석과 DDL 생성은 사용할 수 있습니다. 허용 루트가 없으므로 로컬 경로 선택은 사용할 수 없습니다.
+
+로컬 파일을 선택하거나 DB를 설정하려면 예시 파일을 복사해 로컬 설정을 만듭니다. 실제 설정 파일은 gitignore 대상입니다.
 
 ```powershell
 Copy-Item config\parqbridge.example.toml config\parqbridge.toml
@@ -172,7 +210,13 @@ export PARQBRIDGE_CONFIG="/path/to/parqbridge.toml"
 
 설정의 host/port로 실행합니다. 기본값은 `127.0.0.1:8765`입니다.
 
-PowerShell:
+uv:
+
+```bash
+uv run --no-dev parqbridge
+```
+
+pip로 만든 환경, PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe -m app
@@ -196,7 +240,17 @@ Uvicorn 직접 실행 명령은 Uvicorn 기본 주소인 `127.0.0.1:8000`을 사
 
 ## CLI
 
-`python -m app`은 기존처럼 웹 서버를 실행합니다. 명령줄 작업은 `.venv`의 Python으로 실행하며, 입력 Parquet 경로는 설정의 `[server].allowed_roots` 안에 있어야 합니다. 파일은 원래 위치에서 읽기 전용으로 열립니다.
+하위 명령 없이 `python -m app` 또는 `parqbridge`를 실행하면 웹 서버가 시작됩니다. 명령줄 작업은 `.venv`의 Python 또는 `uv run --no-dev parqbridge <명령>`으로 실행하며, 입력 Parquet 경로는 설정의 `[server].allowed_roots` 안에 있어야 합니다. 파일은 원래 위치에서 읽기 전용으로 열립니다.
+
+uv:
+
+```bash
+uv run --no-dev parqbridge --help
+uv run --no-dev parqbridge inspect "D:\data\part.parquet"
+uv run --no-dev parqbridge ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
+```
+
+아래 예시는 pip로 만든 환경 기준이며, 각 `-m app` 형식은 `uv run --no-dev parqbridge`로도 실행할 수 있습니다.
 
 PowerShell:
 
@@ -232,7 +286,7 @@ python=.venv/bin/python
 
 `ddl -o`는 입력 Parquet 또는 Parquet 파일을 출력 대상으로 거부합니다. 기존 출력 파일을 바꾸려면 `--force`를 지정하세요. `ddl`과 `load`는 `--length-scan full|sample`로 길이 측정 범위를 선택할 수 있고 기본값은 `full`입니다. `--column NAME`을 반복해 지정하면 해당 최상위 컬럼만 포함하며, 지정하지 않으면 모든 컬럼을 포함합니다. `load --insert-only`는 `CREATE` 없이 기존 `--table`에 INSERT하며 파일 컬럼을 테이블 컬럼과 이름으로 맞춥니다. `--if-exists`, `--mode child|explode`, `--parent-key`, `--explode-column`과 함께 쓸 수 없습니다.
 
-선택 사항으로 editable console script를 설치할 수 있습니다. 기존 의존성을 설치한 뒤 아래 명령을 직접 실행하면 `parqbridge` 명령을 사용할 수 있습니다.
+uv는 `parqbridge` 명령을 자동으로 제공합니다. pip로 만든 환경에서는 의존성을 설치한 뒤 선택 사항으로 설치할 수 있습니다. 설정과 업로드 파일이 저장소 기준으로 유지되도록 editable(`-e`)로 설치해야 하며, editable이 아닌 `pip install .`은 지원하지 않습니다.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
@@ -319,7 +373,13 @@ python=.venv/bin/python
 
 전체 테스트를 실행합니다.
 
-PowerShell:
+uv:
+
+```bash
+uv run pytest -q -rs
+```
+
+pip로 만든 환경, PowerShell:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q -rs
@@ -329,6 +389,15 @@ macOS/Linux (bash):
 
 ```bash
 .venv/bin/python -m pytest -q -rs
+```
+
+### 의존성 변경
+
+의존성 버전의 단일 원천은 `pyproject.toml`입니다. 런타임 패키지는 `[project].dependencies`에, 테스트 패키지는 `dev` 의존성 그룹에 있습니다. 버전을 바꾼 뒤에는 잠금 파일과 pip용 requirements 파일을 다시 생성하고 전체 테스트를 실행합니다. `uv.lock`과 `requirements.txt`는 직접 수정하지 않습니다. 두 파일이 `pyproject.toml`과 어긋나면 `tests/test_packaging.py`가 실패합니다.
+
+```bash
+uv lock
+uv export --format requirements-txt --no-hashes --no-emit-project -o requirements.txt
 ```
 
 통합 테스트는 해당 DB 프로필이 온라인일 때만 실행됩니다. 설정이 없으면 `oracle`/`mysql`/`postgres` 마커 테스트가 사유와 함께 skip됩니다. DB를 사용하는 경우 테스트는 `PB_TEST_` 테이블만 만들고 정리합니다.

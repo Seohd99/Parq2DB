@@ -21,6 +21,9 @@ PUBLIC_TARGETS = (
     Path("tests"),
     Path("app"),
     Path("pyproject.toml"),
+    Path("requirements.txt"),
+    Path("uv.lock"),
+    Path(".python-version"),
 )
 
 _WINDOWS_HOME = re.compile(
