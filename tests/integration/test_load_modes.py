@@ -8,7 +8,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from app.core.db import close_quietly, connect, table_exists
+from app.core.db import close_quietly, connect, count_table, table_exists
 from app.core.errors import PBError
 from app.core.flatten import plan_tables
 from app.core.jobs import execute_load
@@ -69,6 +69,14 @@ def load(path, tables, profile, *, policy="fail", cancel=None, progress=lambda *
     )
 
 
+def database_count(profile, table):
+    connection = connect(profile)
+    try:
+        return count_table(connection, profile, table.name, quoted=table.identifier_policy == "quoted")
+    finally:
+        close_quietly(connection)
+
+
 def read_row(profile, table, paths, *, row_id=1):
     names = {column.original_path: column.name for column in table.columns}
     columns = ", ".join(identifier(names[path], table, profile.kind) for path in paths)
@@ -94,7 +102,7 @@ def test_nested_modes_preserve_values_and_match_counts(db_profile, plans, parque
     tables = plans(parquet_path, mode=mode, **options)
     result = load(parquet_path, tables, db_profile)
     assert all(report["matched"] for report in result["tables"])
-    assert result["tables"][0]["database_count"] == (7 if mode == "explode" else 5)
+    assert database_count(db_profile, tables[0]) == (7 if mode == "explode" else 5)
     assert read_row(db_profile, tables[0], ["comment"])[0] == "한글 문자열"
     assert len(read_row(db_profile, tables[0], ["comment"], row_id=3)[0]) == 4101
     if mode == "none":
@@ -103,7 +111,7 @@ def test_nested_modes_preserve_values_and_match_counts(db_profile, plans, parque
         assert decoded == [[10, 20], {"city": "Seoul", "active": True}, {"a": 1}]
     elif mode == "child":
         assert len(result["tables"]) == 7
-        assert [report["database_count"] for report in result["tables"]] == [5, 5, 4, 4, 4, 4, 6]
+        assert [database_count(db_profile, table) for table in tables] == [5, 5, 4, 4, 4, 4, 6]
 
 
 @pytest.mark.parametrize("generated", [False, True])
@@ -117,8 +125,10 @@ def test_append_respects_parent_key_strategy(db_profile, plans, parquet_path, ge
         assert caught.value.code == "E_APPEND_GENERATED_KEY"
     else:
         second = load(parquet_path, tables, db_profile, policy="append")
-        assert all(report["matched"] and report["database_count"] == 2 * report["expected_rows"]
-                   for report in second["tables"])
+        assert all(report["matched"] for report in second["tables"])
+        assert [database_count(db_profile, table) for table in tables] == [
+            2 * report["expected_rows"] for report in second["tables"]
+        ]
 
 
 def test_cancel_keeps_only_the_committed_batch(db_profile, plans, parquet_path):
@@ -132,7 +142,7 @@ def test_cancel_keeps_only_the_committed_batch(db_profile, plans, parquet_path):
     result = load(parquet_path, tables, db_profile, cancel=cancel, progress=after_batch)
     assert result["cancelled"] is True
     assert result["committed_batches"] == 1
-    assert result["tables"][0]["database_count"] == 2
+    assert database_count(db_profile, tables[0]) == 2
 
 
 def test_case_distinct_columns_keep_separate_values(db_profile, plans, tmp_path):
