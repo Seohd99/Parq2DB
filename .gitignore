@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 
 # Local settings and secrets: only config/parqbridge.example.toml is committed.
