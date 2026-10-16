@@ -1,0 +1,11 @@
+name: Set up ParqBridge tests
+description: Install Python 3.14 and project dependencies from the committed lock file
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+      with:
+        version: "0.13.1"
+        enable-cache: true
+    - run: uv sync --frozen
+      shell: bash

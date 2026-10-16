@@ -2,6 +2,8 @@
 
 # ParqBridge
 
+[![CI](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml)
+
 ## 언제 사용하나요?
 
 - Parquet 파일을 Oracle, PostgreSQL, MySQL 테이블로 옮기고 싶을 때
@@ -31,13 +33,13 @@ ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Orac
 
 ## 요구사항
 
-- Windows 10/11에서 검증
+- Windows 10/11에서 데스크톱 사용 검증, Windows·Ubuntu에서 자동 테스트 실행
 - Python 3.14 (없으면 uv가 자동으로 설치)
 - 프로젝트 전용 `.venv`
 - `pyproject.toml`에 고정하고 `uv.lock`으로 잠근 의존성
 - DB 적재를 쓸 때는 Oracle 12.2+, MySQL 8+, PostgreSQL 16+ 중 하나의 접속 정보
 
-macOS/Linux 명령도 함께 제공하지만, 앱 실행과 테스트는 해당 환경에서 검증하지 않았습니다.
+Ubuntu 자동 테스트 결과는 CI에서 확인할 수 있습니다. Linux 데스크톱 브라우저 사용과 macOS 실행은 검증하지 않았습니다.
 
 ## 설치
 
@@ -391,6 +393,22 @@ macOS/Linux (bash):
 .venv/bin/python -m pytest -q -rs
 ```
 
+### 지속적 통합(CI)
+
+[GitHub Actions](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml)는 `main` push, pull request, 수동 실행에서 동작합니다. Python 3.14와 커밋된 `uv.lock`으로 Windows·Ubuntu 단위 테스트를 실행합니다. 별도 Ubuntu 작업에서는 일회용 PostgreSQL 16.15, MySQL 8.4.11, Oracle Free 23.26.3 서비스 컨테이너를 띄웁니다. Actions는 커밋 SHA, 컨테이너 이미지는 digest로 고정합니다.
+
+각 DB에서 통합 테스트 9개를 실행합니다. 생성·적재·행 수 및 한글·UTC 타임스탬프 왕복, 기본값·계산 컬럼이 있는 기존 테이블 INSERT, JSON·자식 테이블·행 전개 모드, 두 부모 키 방식의 append 정책, 배치 커밋 후 취소, 대소문자가 다른 컬럼 값 보존을 검증합니다. 테스트 테이블은 모두 `PB_TEST_` 접두사를 쓰고 정리합니다. CI에서는 DB 프로필이 없으면 skip 대신 실패하며, 실행별 artifact에서 JUnit 보고서를 내려받을 수 있습니다.
+
+Oracle 작업은 위 Free 컨테이너 버전을 검증하며 모든 Oracle 12.2/19c 설치 환경의 호환성을 증명하지는 않습니다. 배지를 누르면 실패와 재실행을 포함한 실제 결과를 확인할 수 있습니다.
+
+전용 로컬 테스트 프로필을 명시하고 실행을 필수로 하려면:
+
+```bash
+uv run pytest tests/integration -m postgres --db-config=/path/to/test.toml --require-db -q -rs
+```
+
+명시한 TOML은 `password_env`를 사용하는 일반 프로필 형식이며 `config/parqbridge.local.toml`과 섞이지 않습니다. CI는 `tools/ci_database_config.py`로 runner 임시 폴더에 프로필을 생성하고, 일회용 컨테이너에만 공개된 테스트 비밀번호를 사용합니다.
+
 ### 의존성 변경
 
 의존성 버전의 단일 원천은 `pyproject.toml`입니다. 런타임 패키지는 `[project].dependencies`에, 테스트 패키지는 `dev` 의존성 그룹에 있습니다. 버전을 바꾼 뒤에는 잠금 파일과 pip용 requirements 파일을 다시 생성하고 전체 테스트를 실행합니다. `uv.lock`과 `requirements.txt`는 직접 수정하지 않습니다. 두 파일이 `pyproject.toml`과 어긋나면 `tests/test_packaging.py`가 실패합니다.
@@ -451,7 +469,7 @@ UPDATE_GOLDEN=1 .venv/bin/python -m pytest -q tests/test_ddl.py
 
 ## 플랫폼별 코드·검증 참고
 
-- 자동 테스트와 앱 사용은 Windows 10/11에서 확인했습니다. macOS/Linux용 명령은 제공하지만 해당 플랫폼에서 실행하거나 검증하지 않았습니다.
+- 데스크톱 앱 사용은 Windows 10/11에서 확인했습니다. CI는 Windows·Ubuntu 24.04에서 자동 테스트를 실행하며, Linux 데스크톱 브라우저 사용과 macOS 실행은 검증하지 않았습니다.
 - `tools/measure_large_parquet.py`의 RSS 측정은 Windows `psapi.GetProcessMemoryInfo`를 사용합니다.
 - 경로 검증은 플랫폼 경로 API를 사용하고, Windows junction API가 있는 경우 junction도 검사합니다. `tests/test_files.py`의 심볼릭 링크 탈출 테스트는 테스트 환경에서 링크 생성을 허용하지 않으면 skip합니다.
 - 업로드 파일명 정리 과정은 Windows 백슬래시도 경로 구분자로 정규화합니다.

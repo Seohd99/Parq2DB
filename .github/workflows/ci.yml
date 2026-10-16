@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup
+      - name: Check frontend and run unit tests
+        run: |
+          node --version
+          node --check app/static/app.js
+          uv run --frozen pytest -q -rs --strict-markers --strict-config --ignore=tests/integration --junitxml=unit-results.xml
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unit-${{ matrix.os }}
+          path: unit-results.xml
+          if-no-files-found: warn
+
+  postgres:
+    name: PostgreSQL 16.15 integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # These public passwords belong only to disposable CI databases.
+    env:
+      PB_CI_DB_PASSWORD: PB_CI_ONLY_NotASecret_42
+    services:
+      postgres:
+        image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_USER: pb_test_user
+          POSTGRES_PASSWORD: PB_CI_ONLY_NotASecret_42
+          POSTGRES_DB: pb_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pb_test_user -d pb_test"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup
+      - name: Run PostgreSQL integration tests
+        run: |
+          uv run --frozen python tools/ci_database_config.py postgres "$RUNNER_TEMP/database.toml"
+          uv run --frozen pytest -q -rs --strict-markers --strict-config tests/integration -m postgres --db-config="$RUNNER_TEMP/database.toml" --require-db --junitxml=postgres-results.xml
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: postgres-integration
+          path: postgres-results.xml
+          if-no-files-found: warn
+
+  mysql:
+    name: MySQL 8.4.11 integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PB_CI_DB_PASSWORD: PB_CI_ONLY_NotASecret_42
+    services:
+      mysql:
+        image: mysql:8.4.11@sha256:24989179f58856db763f418010c1169fecc944e3ec1ea7e921572d83eb070f70
+        env:
+          MYSQL_ROOT_PASSWORD: PB_CI_ONLY_Root_42
+          MYSQL_DATABASE: pb_test
+          MYSQL_USER: pb_test_user
+          MYSQL_PASSWORD: PB_CI_ONLY_NotASecret_42
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup
+      - name: Run MySQL integration tests
+        run: |
+          uv run --frozen python tools/ci_database_config.py mysql "$RUNNER_TEMP/database.toml"
+          uv run --frozen pytest -q -rs --strict-markers --strict-config tests/integration -m mysql --db-config="$RUNNER_TEMP/database.toml" --require-db --junitxml=mysql-results.xml
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mysql-integration
+          path: mysql-results.xml
+          if-no-files-found: warn
+
+  oracle:
+    name: Oracle Free 23.26.3 integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PB_CI_DB_PASSWORD: PB_CI_ONLY_NotASecret_42
+    services:
+      oracle:
+        image: gvenzl/oracle-free:23.26.3-slim-faststart@sha256:f5ff19033860d662c821cb04eb10483fa94f14f78eae252d054291ea07028093
+        env:
+          ORACLE_PASSWORD: PB_CI_ONLY_Root_42
+          APP_USER: pb_test_user
+          APP_USER_PASSWORD: PB_CI_ONLY_NotASecret_42
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: ./.github/actions/setup
+      - name: Run Oracle integration tests
+        run: |
+          uv run --frozen python tools/ci_database_config.py oracle "$RUNNER_TEMP/database.toml"
+          uv run --frozen pytest -q -rs --strict-markers --strict-config tests/integration -m oracle --db-config="$RUNNER_TEMP/database.toml" --require-db --junitxml=oracle-results.xml
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: oracle-integration
+          path: oracle-results.xml
+          if-no-files-found: warn
