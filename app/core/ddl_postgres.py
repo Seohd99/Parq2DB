@@ -5,14 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from app.core.errors import PBError
+from app.core.dialects import quote_identifier
 from app.core.model import TableModel
 from app.core.typemap import POSTGRES_MAX_COLUMNS
-
-
-def _identifier(name: str, policy: str) -> str:
-    if policy == "quoted":
-        return '"' + name.replace('"', '""') + '"'
-    return name
 
 
 def generate_postgres_ddl(tables: Iterable[TableModel]) -> str:
@@ -25,10 +20,10 @@ def generate_postgres_ddl(tables: Iterable[TableModel]) -> str:
                 table=table.name,
                 max_columns=POSTGRES_MAX_COLUMNS,
             )
-        table_name = _identifier(table.name, table.identifier_policy)
+        table_name = quote_identifier(table.name, "postgres", table.identifier_policy == "quoted")
         columns: list[str] = []
         for column in table.columns:
-            name = _identifier(column.name, table.identifier_policy)
+            name = quote_identifier(column.name, "postgres", table.identifier_policy == "quoted")
             definition = f"  {name} {column.sql_type('postgres')}"
             if not column.nullable:
                 definition += " NOT NULL"

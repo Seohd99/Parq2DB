@@ -115,6 +115,27 @@ class FakeCursor:
             self.connection.row_counts.pop(name, None)
         self.sql = sql
 
+    def copy(self, sql):
+        # Emulate psycopg's COPY context: rows written inside it arrive as one batch.
+        cursor = self
+        insert = sql.replace("COPY", "INSERT INTO", 1)
+
+        class Copy:
+            def __init__(self):
+                self.rows = []
+
+            def __enter__(self):
+                return self
+
+            def write_row(self, row):
+                self.rows.append(row)
+
+            def __exit__(self, exc_type, *_):
+                if exc_type is None:
+                    cursor.executemany(insert, self.rows)
+
+        return Copy()
+
     def executemany(self, sql, rows):
         rows = list(rows)
         if self.connection.pause_on_insert:

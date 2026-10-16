@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from pathlib import Path
 from threading import Event
 
@@ -16,7 +17,7 @@ from app.core.ddl_postgres import generate_postgres_ddl
 from app.core.errors import PBError
 from app.core.flatten import plan_tables, validate_table_name
 from app.core.jobs import PostgresNulValueError, convert_value, execute_load, validate_load_request
-from app.core.load_postgres import insert_batch, insert_sql
+from app.core.load_postgres import copy_sql, insert_batch, insert_sql
 from app.core.model import StringLength
 from app.core.typemap import measure_string_lengths, map_arrow_type
 from app.main import app
@@ -147,7 +148,7 @@ def test_postgres_ddl_goldens_for_all_modes(parquet_path: Path):
 def test_postgres_web_status_and_ddl_modes_are_available_offline(tmp_path: Path, parquet_path: Path):
     config = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
     app.state.config = config
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         status = client.get("/api/status").json()
         assert status["db"]["postgres"]["online"] is False
         assert status["db"]["postgres"]["reason"]["code"] == "E_DB_NOT_CONFIGURED"
@@ -236,39 +237,109 @@ class _FakePgError(Exception):
     sqlstate = "22021"
 
 
-def test_postgres_insert_batch_uses_executemany_and_reports_bad_row():
-    table = _table(pa.schema([pa.field("payload", pa.string())]))[0]
-    calls = []
+class _FakeCopyUnsupported(Exception):
+    sqlstate = "0A000"
 
-    class Cursor:
-        def executemany(self, sql, rows):
-            calls.append((sql, tuple(rows)))
+
+class _FakeCopy:
+    def __init__(self, cursor, sql):
+        self.cursor = cursor
+        self.sql = sql
+        self.rows = []
+
+    def __enter__(self):
+        if self.cursor.copy_error is not None:
+            raise self.cursor.copy_error("synthetic failure text")
+        return self
+
+    def write_row(self, row):
+        self.rows.append(row)
+
+    def __exit__(self, exc_type, *_):
+        if exc_type is None:
+            self.cursor.calls.append(("copy", self.sql, tuple(self.rows)))
+            if any(row[0] == "bad" for row in self.rows):
+                raise _FakePgError("synthetic failure text")
+            self.cursor.rowcount = len(self.rows)
+
+
+class _FakePgCursor:
+    def __init__(self, calls, copy_error=None):
+        self.calls = calls
+        self.copy_error = copy_error
+        self.rowcount = -1
+
+    def copy(self, sql):
+        return _FakeCopy(self, sql)
+
+    def executemany(self, sql, rows):
+        rows = tuple(rows)
+        self.calls.append(("executemany", sql, rows))
+        if any(row[0] == "bad" for row in rows):
+            raise _FakePgError("synthetic failure text")
+        self.rowcount = len(rows)
+
+    def execute(self, sql, params=None):
+        if sql.startswith("INSERT") and params[0] == "bad":
             raise _FakePgError("synthetic failure text")
 
-        def execute(self, sql, params=None):
-            if sql.startswith("INSERT") and params[0] == "bad":
-                raise _FakePgError("synthetic failure text")
+    def close(self):
+        pass
 
-        def close(self):
-            pass
 
-    class Connection:
-        rollbacks = 0
+class _FakePgConnection:
+    def __init__(self, copy_error=None):
+        self.calls = []
+        self.copy_error = copy_error
+        self.rollbacks = 0
 
-        def cursor(self):
-            return Cursor()
+    def cursor(self):
+        return _FakePgCursor(self.calls, self.copy_error)
 
-        def rollback(self):
-            self.rollbacks += 1
+    def rollback(self):
+        self.rollbacks += 1
 
-    connection = Connection()
+
+def test_postgres_insert_batch_copies_rows_and_returns_driver_count():
+    table = _table(pa.schema([pa.field("payload", pa.string())]))[0]
+    connection = _FakePgConnection()
+    assert copy_sql(table) == "COPY PB_TEST_POSTGRES (PAYLOAD) FROM STDIN"
+    assert insert_batch(connection, table, [("one",), ("two",)]) == 2
+    assert connection.calls == [("copy", copy_sql(table), (("one",), ("two",)))]
+    assert connection.rollbacks == 0
+    assert insert_batch(connection, table, []) == 0
+
+
+def test_postgres_insert_batch_falls_back_to_insert_when_copy_is_refused():
+    # PostgreSQL refuses COPY FROM on tables with row-level security (SQLSTATE 0A000).
+    table = _table(pa.schema([pa.field("payload", pa.string())]))[0]
+    connection = _FakePgConnection(copy_error=_FakeCopyUnsupported)
+    assert insert_batch(connection, table, [("one",), ("two",)]) == 2
+    assert connection.calls == [("executemany", insert_sql(table), (("one",), ("two",)))]
+    assert connection.rollbacks == 1
+
+
+def test_postgres_insert_batch_reports_bad_row_after_failed_copy():
+    table = _table(pa.schema([pa.field("payload", pa.string())]))[0]
+    connection = _FakePgConnection()
     assert insert_sql(table) == "INSERT INTO PB_TEST_POSTGRES (PAYLOAD) VALUES (%s)"
     with pytest.raises(BatchInsertError) as failure:
         insert_batch(connection, table, [("ok",), ("bad",)])
     assert failure.value.row_offset == 1
     assert failure.value.driver_code == "22021"
-    assert calls == [(insert_sql(table), (("ok",), ("bad",)))]
+    assert connection.calls == [("copy", copy_sql(table), (("ok",), ("bad",)))]
     assert connection.rollbacks >= 2
+
+
+def test_postgres_copy_text_rows_escape_control_characters():
+    # write_row encodes each value with psycopg's text dumpers and COPY text escaping.
+    from psycopg import _copy_base
+    from psycopg.adapt import Transformer
+
+    out = bytearray()
+    row = ("한글\\x", "a\tb\nc", None, Decimal("12.34"), True, '{"k":"v"}')
+    _copy_base.format_row_text(row, Transformer(), out)
+    assert bytes(out).decode("utf-8") == '한글\\\\x\ta\\tb\\nc\t\\N\t12.34\tt\t{"k":"v"}\n'
 
 
 def _patch_fake_db(monkeypatch, *, exists=False, columns=()):
@@ -333,7 +404,7 @@ def test_postgres_load_reports_failure_location_and_committed_counts(monkeypatch
         if not state["inserts"]:
             state["inserts"].append(tuple(rows))
             state["count"] += len(rows)
-            return
+            return len(rows)
         raise BatchInsertError(1, "22021")
 
     monkeypatch.setattr(jobs.load_postgres, "insert_batch", insert)
@@ -370,6 +441,7 @@ def test_postgres_load_cancellation_keeps_completed_batch(monkeypatch):
 
     def insert(_connection, _table, rows):
         state["count"] += len(rows)
+        return len(rows)
 
     monkeypatch.setattr(jobs.load_postgres, "insert_batch", insert)
     cancel_event = Event()

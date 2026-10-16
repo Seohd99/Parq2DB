@@ -343,7 +343,6 @@ def _print_load_result(snapshot: dict[str, Any], lang: str) -> None:
                 {
                     "expected": table.get("expected_rows"),
                     "actual": table.get("actual_rows"),
-                    "database": table.get("database_count"),
                 },
             )
             + f" [{table.get('table')}]"

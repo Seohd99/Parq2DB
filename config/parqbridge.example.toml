@@ -10,6 +10,7 @@ host = "127.0.0.1"          # Do not change to 0.0.0.0; this tool is for local u
 port = 8765
 upload_max_mb = 2048
 allowed_roots = ["D:\\data"]  # Windows example. macOS/Linux: ["/home/me/data"]
+# allowed_hosts = []        # Extra Host header names to accept besides 127.0.0.1, localhost, and ::1.
 
 [load]
 batch_size = 10000

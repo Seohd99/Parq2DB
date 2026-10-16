@@ -4,23 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from app.core.dialects import quote_identifier
 from app.core.model import TableModel
-
-
-def _identifier(name: str, policy: str) -> str:
-    if policy == "quoted":
-        return '"' + name.replace('"', '""') + '"'
-    return name
 
 
 def generate_oracle_ddl(tables: Iterable[TableModel], *, json_check: bool = False) -> str:
     """Generate Oracle CREATE TABLE statements in parent-to-child order."""
     statements: list[str] = []
     for table in tables:
-        table_name = _identifier(table.name, table.identifier_policy)
+        table_name = quote_identifier(table.name, "oracle", table.identifier_policy == "quoted")
         columns = []
         for column in table.columns:
-            name = _identifier(column.name, table.identifier_policy)
+            name = quote_identifier(column.name, "oracle", table.identifier_policy == "quoted")
             definition = f"  {name} {column.sql_type('oracle')}"
             if not column.nullable:
                 definition += " NOT NULL"

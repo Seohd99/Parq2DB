@@ -236,7 +236,7 @@ def upload(client, path):
 
 def test_check_endpoint_reports_matches_without_ddl(tmp_path, flat_parquet_path, fake_target):
     app.state.config = online_config(tmp_path)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         file_id = upload(c, flat_parquet_path)
         try:
             response = c.post(f"/api/files/{file_id}/insert/check", json={"dialect": "mysql", "table_name": "pb_test_insert"})
@@ -275,7 +275,7 @@ def test_insert_endpoint_loads_matched_columns_without_waiting_for_the_length_sc
     monkeypatch.setattr("app.core.string_scans.measure_string_lengths", blocked_scan)
     monkeypatch.setattr(jobs, "execute_load", fake_execute_load)
     app.state.config = online_config(tmp_path)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         file_id = upload(c, flat_parquet_path)
         try:
             response = c.post(
@@ -312,7 +312,7 @@ def test_insert_endpoint_loads_matched_columns_without_waiting_for_the_length_sc
 
 def test_load_endpoint_sends_insert_only_to_the_insert_endpoint(tmp_path, flat_parquet_path):
     app.state.config = online_config(tmp_path)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         file_id = upload(c, flat_parquet_path)
         try:
             response = c.post(
@@ -330,7 +330,7 @@ def test_table_list_endpoint_and_offline_profiles(tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.close_quietly", lambda _connection: None)
     monkeypatch.setattr("app.main.list_tables", lambda _c, _p, limit: [f"T{index}" for index in range(limit)])
     app.state.config = online_config(tmp_path)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         body = c.get("/api/db/mysql/tables").json()
         assert len(body["tables"]) == db.TABLE_LIST_LIMIT
         assert body["truncated"] is True
@@ -356,6 +356,7 @@ def test_execute_load_streams_only_matched_columns_into_stored_names(flat_parque
     def capture(_connection, planned, rows):
         inserted.append((load_mysql.insert_sql(planned), list(rows)))
         counts["value"] += len(rows)
+        return len(rows)
 
     monkeypatch.setattr(load_mysql, "insert_batch", capture)
     result = jobs.execute_load(

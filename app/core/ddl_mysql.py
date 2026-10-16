@@ -4,14 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from app.core.dialects import quote_identifier
 from app.core.model import TableModel
 from app.core.typemap import enforce_mysql_row_size
-
-
-def _identifier(name: str, policy: str) -> str:
-    if policy == "quoted":
-        return "`" + name.replace("`", "``") + "`"
-    return name
 
 
 def generate_mysql_ddl(tables: Iterable[TableModel]) -> str:
@@ -19,10 +14,10 @@ def generate_mysql_ddl(tables: Iterable[TableModel]) -> str:
     statements: list[str] = []
     for planned_table in tables:
         table = enforce_mysql_row_size(planned_table)
-        table_name = _identifier(table.name, table.identifier_policy)
+        table_name = quote_identifier(table.name, "mysql", table.identifier_policy == "quoted")
         columns: list[str] = []
         for column in table.columns:
-            name = _identifier(column.name, table.identifier_policy)
+            name = quote_identifier(column.name, "mysql", table.identifier_policy == "quoted")
             definition = f"  {name} {column.sql_type('mysql')}"
             if not column.nullable:
                 definition += " NOT NULL"

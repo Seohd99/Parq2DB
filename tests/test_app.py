@@ -16,7 +16,7 @@ from app.main import DdlOptions, LoadOptions, app
 
 def client_with(cfg) -> TestClient:
     app.state.config = cfg
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
 def test_index_and_static(tmp_path):
@@ -45,6 +45,43 @@ def test_status_offline(tmp_path):
     }
     assert body["db"]["mysql"]["online"] is False
     assert body["languages"] == supported_languages()
+
+
+@pytest.mark.parametrize("host", ["evil.example:8765", "evil.example", "127.0.0.1.evil.example", ""])
+def test_foreign_host_header_is_refused(tmp_path, host):
+    # A DNS-rebinding page reaches 127.0.0.1 but still sends its own domain as Host.
+    cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
+    with client_with(cfg) as c:
+        for response in (c.get("/api/status", headers={"host": host}), c.get("/", headers={"host": host})):
+            assert response.status_code == 403
+            assert response.json()["error"]["code"] == "E_HOST_NOT_ALLOWED"
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1:8765", "localhost:8765", "LOCALHOST", "[::1]:8765"])
+def test_loopback_host_headers_are_accepted(tmp_path, host):
+    cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
+    with client_with(cfg) as c:
+        assert c.get("/api/status", headers={"host": host}).status_code == 200
+
+
+def test_configured_allowed_host_is_accepted(tmp_path):
+    cfg = AppConfig(server=ServerConfig(host="0.0.0.0", allowed_hosts=("pb.lan",)))
+    with client_with(cfg) as c:
+        assert c.get("/api/status", headers={"host": "pb.lan:8765"}).status_code == 200
+        assert c.get("/api/status", headers={"host": "0.0.0.0:8765"}).status_code == 403
+
+
+def test_cross_site_origin_is_refused_for_state_changes(tmp_path):
+    cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
+    with client_with(cfg) as c:
+        for origin in ("http://evil.example", "null"):
+            response = c.post("/api/jobs/missing/cancel", headers={"origin": origin})
+            assert response.status_code == 403
+            assert response.json()["error"]["code"] == "E_ORIGIN_NOT_ALLOWED"
+        # Same-origin posts and reads from another origin reach the route.
+        assert c.post("/api/jobs/missing/cancel", headers={"origin": "http://127.0.0.1:8765"}).status_code == 404
+        assert c.post("/api/jobs/missing/cancel").status_code == 404
+        assert c.get("/api/status", headers={"origin": "http://evil.example"}).status_code == 200
 
 
 def test_length_scan_defaults_to_full_and_is_shared_by_load_options():

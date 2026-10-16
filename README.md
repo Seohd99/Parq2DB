@@ -299,7 +299,7 @@ uv provides the `parqbridge` command automatically. In a pip-managed environment
    - **Explore the file**: review the metadata, column statistics, schema, flat/nested classification, and paged row preview.
    - **INSERT into an existing table**: choose the target database and table (table names in the current schema are fetched once and filtered as you type), click **Check table**, review how file columns match table columns, and run INSERT. No DDL is generated and no string-length scan is awaited. See [INSERT into an existing table](#insert-into-an-existing-table).
    - **Create a new table**: choose the flattening mode, target database, table name, and column options to generate DDL and preview the transformed data. All top-level columns are included by default; uncheck columns under **Columns** to leave them out of the DDL, CREATE, and INSERT. Copy the DDL, download it as a `.sql` file, or, if the database is online, run `CREATE + INSERT` with an existing-table policy below.
-3. Follow the progress. When the job finishes, compare the source or expected transformed row count with the database `COUNT(*)` result.
+3. Follow the progress. When the job finishes, compare the source or expected transformed row count with the number of rows the database driver reported as inserted. The app does not run `COUNT(*)`, so the check stays fast on large tables and is not affected by other sessions writing to the same table.
 
 The suggested table name follows the selected database's naming rules and updates when you change the target database. A name you edit yourself is kept until you select another file.
 
@@ -459,6 +459,7 @@ The script outputs JSON with the selected file's size, row count and number of r
 ## Security and operations notes
 
 - The server binds only to `127.0.0.1` by default. Do not expose it on a shared network.
+- Requests whose `Host` header is not `127.0.0.1`, `localhost`, `::1`, the configured bind host, or a name in `[server].allowed_hosts` are refused with `E_HOST_NOT_ALLOWED`; this blocks DNS-rebinding pages. State-changing requests sent from a page on another site are refused with `E_ORIGIN_NOT_ALLOWED`.
 - Original local Parquet files can only be selected from allowed roots and are read-only. Only uploaded files can be deleted from the upload list.
 - Keep `allowed_roots` limited to the folders you need. Path traversal and links pointing outside allowed roots are blocked.
 - Store passwords in environment variables or the gitignored `parqbridge.local.toml`. Do not record passwords or DSNs in logs, the UI, responses, or test fixtures.
@@ -469,7 +470,7 @@ The script outputs JSON with the selected file's size, row count and number of r
 - Struct fields whose names differ only by case are rejected in previews and plans. MySQL also rejects case-only column-name collisions under the quoted naming policy.
 - Expanding map keys into wide columns is a follow-up task. For now, use JSON in `none` mode or a map child table in `child` mode.
 - `length_scan=sample` is an estimate and does not guarantee the maximum value in the whole file. If you suspect long values were missed or encounter a load error, plan again with `length_scan=full`. The exact maximum measured by a full scan does not guarantee widths for values appended from other files.
-- The `LOAD DATA LOCAL INFILE` path is disabled. MySQL loading currently uses batched `executemany`.
+- The `LOAD DATA LOCAL INFILE` path is disabled. MySQL loading currently uses batched `executemany`. PostgreSQL loading uses `COPY ... FROM STDIN` per batch and falls back to `executemany` for tables that refuse COPY, such as tables with row-level security.
 - Database performance depends on the driver, network, schema, and server settings. Fake-driver measurements do not represent real database load speed or memory usage.
 - File handles and job history shown in the UI are stored only in process memory.
 

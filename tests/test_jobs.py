@@ -171,7 +171,8 @@ def test_streaming_batches_commit_each_batch_and_stay_within_batch_size(monkeypa
     assert result["committed_batches"] == 2
     assert result["committed_rows"] == 3
     assert result["tables"][0]["expected_rows"] == result["tables"][0]["actual_rows"] == 3
-    assert result["tables"][0]["database_count"] == 3
+    assert "database_count" not in result["tables"][0]
+    assert not any("COUNT(*)" in statement for statement in connection.statements)
     assert result["tables"][0]["matched"] is True
 
 
@@ -236,8 +237,9 @@ def test_cancellation_keeps_committed_batches_and_returns_partial_counts(monkeyp
     original = jobs.load_mysql.insert_batch
 
     def insert_then_cancel(conn, table, rows):
-        original(conn, table, rows)
+        inserted = original(conn, table, rows)
         cancel_event.set()
+        return inserted
 
     monkeypatch.setattr(jobs.load_mysql, "insert_batch", insert_then_cancel)
     result = execute_load(
@@ -514,7 +516,7 @@ def test_none_mode_load_keeps_columns_that_differ_only_by_case(monkeypatch, tmp_
 
     def capture(conn, table, rows):
         inserted.extend(rows)
-        original(conn, table, rows)
+        return original(conn, table, rows)
 
     monkeypatch.setattr(jobs.load_mysql, "insert_batch", capture)
     execute_load(
@@ -554,7 +556,7 @@ def test_none_mode_load_reads_and_inserts_only_selected_columns(monkeypatch, fla
 
     def capture(conn, table, rows):
         inserted.extend(rows)
-        original_insert(conn, table, rows)
+        return original_insert(conn, table, rows)
 
     monkeypatch.setattr(jobs.load_mysql, "insert_batch", capture)
     result = execute_load(
@@ -600,8 +602,8 @@ def test_insert_only_accepts_extra_table_columns_and_rejects_missing_ones(monkey
     )
     assert wide.statements == []
     assert result["preparation_changes_applied"] is False
+    # Rows already in the table (5) are not counted; only rows this load inserted are compared.
     assert result["tables"][0]["actual_rows"] == 3
-    assert result["tables"][0]["database_count"] == 8
     assert result["tables"][0]["matched"] is True
 
     narrow = FakeConnection(existing={"PB_TEST_JOB"}, columns={"PB_TEST_JOB": {"ID"}})

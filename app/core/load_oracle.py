@@ -7,18 +7,16 @@ from typing import Any
 
 import oracledb
 
-from app.core.db import BatchInsertError, driver_code
+from app.core.db import BatchInsertError, driver_code, reported_rows
+from app.core.dialects import quote_identifier
 from app.core.model import TableModel
-
-
-def _identifier(name: str, quoted: bool) -> str:
-    return '"' + name.replace('"', '""') + '"' if quoted else name
 
 
 def insert_sql(table: TableModel) -> str:
     """Build one Oracle positional-bind INSERT for a planned table."""
-    name = _identifier(table.name, table.identifier_policy == "quoted")
-    columns = ", ".join(_identifier(column.name, table.identifier_policy == "quoted") for column in table.columns)
+    quoted = table.identifier_policy == "quoted"
+    name = quote_identifier(table.name, "oracle", quoted)
+    columns = ", ".join(quote_identifier(column.name, "oracle", quoted) for column in table.columns)
     binds = ", ".join(f":{index}" for index in range(1, len(table.columns) + 1))
     return f"INSERT INTO {name} ({columns}) VALUES ({binds})"
 
@@ -38,10 +36,10 @@ def _input_sizes(table: TableModel) -> list[Any]:
     return values
 
 
-def insert_batch(connection: Any, table: TableModel, rows: Sequence[tuple[Any, ...]]) -> None:
-    """Insert one bounded batch with array binds and report a batch-local offset."""
+def insert_batch(connection: Any, table: TableModel, rows: Sequence[tuple[Any, ...]]) -> int:
+    """Insert one bounded batch with array binds; return the row count or report a batch-local offset."""
     if not rows:
-        return
+        return 0
     cursor = connection.cursor()
     try:
         sizes = _input_sizes(table)
@@ -57,6 +55,7 @@ def insert_batch(connection: Any, table: TableModel, rows: Sequence[tuple[Any, .
                 code = f"ORA-{code:05d}"
             connection.rollback()
             raise BatchInsertError(int(getattr(first, "offset", 0)), code)
+        return reported_rows(cursor, rows)
     except BatchInsertError:
         raise
     except Exception as exc:

@@ -28,6 +28,7 @@ from app.core.config import AppConfig, load_config
 from app.core.dialects import SUPPORTED_DIALECTS
 from app.core.db import TABLE_LIST_LIMIT, close_quietly, connect, list_tables, require_online, test_connection
 from app.core.errors import PBError, warning
+from app.core.hosts import allowed_host_names, request_rejection
 from app.core.files import FileRegistry, SelectedFile, StreamingUpload, list_allowed_directory
 from app.core.flatten import (
     build_expected_count_sql,
@@ -67,6 +68,7 @@ def _config_from_env() -> AppConfig:
 async def lifespan(app: FastAPI):
     if not hasattr(app.state, "config"):
         app.state.config = _config_from_env()
+    app.state.allowed_hosts = allowed_host_names(app.state.config.server.host, app.state.config.server.allowed_hosts)
     app.state.files = FileRegistry(app.state.config.server.upload_dir, app.state.config.server.allowed_roots)
     app.state.jobs = LoadJobManager()
     app.state.string_scans = StringScanManager(max_workers=2)
@@ -78,6 +80,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ParqBridge", version=__version__, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def reject_foreign_hosts(request: Request, call_next):
+    # Refuse DNS-rebinding and cross-site requests before any route or static file is served.
+    code = request_rejection(
+        request.method,
+        request.headers.get("host"),
+        request.headers.get("origin"),
+        request.app.state.allowed_hosts,
+    )
+    if code is not None:
+        return JSONResponse(status_code=403, content={"error": {"code": code, "params": {}}})
+    return await call_next(request)
 
 
 @app.middleware("http")

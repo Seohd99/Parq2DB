@@ -30,6 +30,7 @@ from app.core.duckdb_utils import connect_utc, literal_path
 from app.core.ddl_mysql import generate_mysql_ddl
 from app.core.ddl_oracle import generate_oracle_ddl
 from app.core.ddl_postgres import generate_postgres_ddl
+from app.core.dialects import quote_identifier
 from app.core.errors import PBError
 from app.core.flatten import build_expected_count_sql, build_select_sql
 from app.core.model import ColumnModel, TableModel
@@ -53,16 +54,6 @@ def validate_load_request(
         raise PBError("E_BAD_REQUEST", fields=["tables"])
     if existing_policy in {"truncate", "drop_create"} and confirm_table_name != tables[0].name:
         raise PBError("E_CONFIRM_REQUIRED", table=tables[0].name)
-
-
-def _identifier(name: str, dialect: str, quoted: bool) -> str:
-    if not quoted:
-        return name
-    if dialect == "oracle":
-        return '"' + name.replace('"', '""') + '"'
-    if dialect == "postgres":
-        return '"' + name.replace('"', '""') + '"'
-    return "`" + name.replace("`", "``") + "`"
 
 
 def _create_statement(profile: DbProfile, table: TableModel) -> str:
@@ -185,7 +176,7 @@ def _prepare_tables(
             if cancel_event.is_set():
                 return changed
             if exists[table.name]:
-                name = _identifier(table.name, profile.kind, quoted)
+                name = quote_identifier(table.name, profile.kind, quoted)
                 _execute_statement(connection, profile, f"TRUNCATE TABLE {name}")
                 changed = True
         for table in tables:
@@ -200,7 +191,7 @@ def _prepare_tables(
             if cancel_event.is_set():
                 return changed
             if exists[table.name]:
-                name = _identifier(table.name, profile.kind, quoted)
+                name = quote_identifier(table.name, profile.kind, quoted)
                 suffix = " PURGE" if profile.kind == "oracle" else ""
                 _execute_statement(connection, profile, f"DROP TABLE {name}{suffix}")
                 changed = True
@@ -445,7 +436,7 @@ def execute_load(
     cancel_event: threading.Event,
     progress: LoadProgress,
 ) -> dict[str, Any]:
-    """Create/prepare planned tables, stream inserts, and compare row counts."""
+    """Create/prepare planned tables, stream inserts, and compare driver-reported row counts."""
     validate_load_request(tables, existing_policy, confirm_table_name)
     connection = connect(profile)
     reports: list[dict[str, Any]] = []
@@ -482,9 +473,8 @@ def execute_load(
                 break
             expected = _expected_rows(path, table, source_rows)
             progress(table.name, 0, expected)
-            quoted = table.identifier_policy == "quoted"
-            before_count = count_table(connection, profile, table.name, quoted=quoted)
             rows_done = 0
+            rows_reported = 0
             table_batches = 0
             batch_index = 0
             insert = {
@@ -511,7 +501,7 @@ def execute_load(
                         committed_rows=committed_rows,
                     ) from None
                 try:
-                    insert(connection, table, rows)
+                    reported = insert(connection, table, rows)
                     try:
                         connection.commit()
                     except Exception as exc:
@@ -554,21 +544,22 @@ def execute_load(
                         driver_code=driver_code(profile.kind, exc),
                     ) from None
                 rows_done += len(rows)
+                rows_reported += reported
                 table_batches += 1
                 committed_batches += 1
                 committed_rows += len(rows)
                 progress(table.name, rows_done, expected)
 
-            after_count = count_table(connection, profile, table.name, quoted=quoted)
-            inserted_rows = after_count - before_count
+            # Compare against the row counts the driver reported for committed batches
+            # rather than COUNT(*) before and after: COUNT(*) scans large tables and
+            # also counts rows other sessions write at the same time.
             reports.append({
                 "table": table.name,
                 "expected_rows": expected,
-                "actual_rows": inserted_rows,
-                "database_count": after_count,
+                "actual_rows": rows_reported,
                 "rows_committed": rows_done,
                 "batches_committed": table_batches,
-                "matched": inserted_rows == expected,
+                "matched": rows_reported == rows_done == expected,
                 "cancelled": cancelled,
             })
             if cancelled:

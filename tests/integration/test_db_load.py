@@ -7,7 +7,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from app.core.config import load_config
-from app.core.db import close_quietly, connect, driver_code, table_exists
+from app.core.db import close_quietly, connect, count_table, driver_code, table_exists
 from app.core.errors import PBError
 from app.core.flatten import plan_tables
 from app.core.jobs import execute_load
@@ -51,11 +51,13 @@ def _round_trip(profile, dialect, tmp_path):
             progress=lambda *_: None,
         )
         report = result["tables"][0]
-        assert report["expected_rows"] == report["database_count"] == 2
+        assert report["expected_rows"] == report["actual_rows"] == 2
         assert report["matched"] is True
 
         connection = connect(profile)
         try:
+            # The driver-reported count must agree with what the table actually holds.
+            assert count_table(connection, profile, table_name) == 2
             cursor = connection.cursor()
             try:
                 if dialect in {"oracle", "postgres"}:
@@ -197,7 +199,7 @@ def _insert_into_existing(profile, dialect, tmp_path):
             cancel_event=threading.Event(),
             progress=lambda *_: None,
         )
-        assert result["tables"][0]["database_count"] == 2
+        assert result["tables"][0]["actual_rows"] == 2
         assert result["tables"][0]["matched"] is True
 
         connection = connect(profile)

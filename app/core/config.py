@@ -48,6 +48,8 @@ class ServerConfig:
     upload_max_mb: int = 2048
     allowed_roots: tuple[Path, ...] = ()
     upload_dir: Path = DEFAULT_UPLOAD_DIR
+    # Extra Host header names accepted besides loopback and the bind host (see app/core/hosts.py).
+    allowed_hosts: tuple[str, ...] = ()
 
     @property
     def upload_max_bytes(self) -> int:
@@ -166,7 +168,17 @@ def _parse_server(raw: Mapping[str, Any], file: str, warnings: list) -> ServerCo
         if p not in roots:
             roots.append(p)
 
-    return ServerConfig(host=host, port=port, upload_max_mb=upload_max_mb, allowed_roots=tuple(roots))
+    hosts_raw = raw.get("allowed_hosts", [])
+    if not isinstance(hosts_raw, list) or not all(isinstance(h, str) and h.strip() for h in hosts_raw):
+        raise PBError("E_CONFIG_INVALID", file=file, key="server.allowed_hosts", expected="list[str]")
+
+    return ServerConfig(
+        host=host,
+        port=port,
+        upload_max_mb=upload_max_mb,
+        allowed_roots=tuple(roots),
+        allowed_hosts=tuple(h.strip() for h in hosts_raw),
+    )
 
 
 def _parse_load(raw: Mapping[str, Any], file: str) -> LoadConfig:

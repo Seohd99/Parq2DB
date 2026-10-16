@@ -116,6 +116,7 @@ host = "0.0.0.0"
 port = 9000
 upload_max_mb = 10
 allowed_roots = [{json.dumps(str(root))}, {json.dumps(str(tmp_path / "nope"))}]
+allowed_hosts = [" pb.lan "]
 [load]
 batch_size = 500
 """)
@@ -123,6 +124,7 @@ batch_size = 500
     assert cfg.server.port == 9000
     assert cfg.server.upload_max_bytes == 10 * 1024 * 1024
     assert cfg.server.allowed_roots == (root.resolve(),)
+    assert cfg.server.allowed_hosts == ("pb.lan",)
     assert cfg.load.batch_size == 500
     assert {w["code"] for w in cfg.warnings} == {"W_BIND_ALL_INTERFACES", "W_ALLOWED_ROOT_MISSING"}
 
@@ -132,6 +134,8 @@ batch_size = 500
     "[server]\nport = true\n",
     "[load]\nbatch_size = 0\n",
     '[server]\nallowed_roots = "D:/data"\n',
+    '[server]\nallowed_hosts = "pb.lan"\n',
+    '[server]\nallowed_hosts = [""]\n',
     "[server\n",
 ])
 def test_invalid_config_raises(tmp_path, snippet):

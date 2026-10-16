@@ -55,7 +55,7 @@ The default server bind is `127.0.0.1`. Database profiles are optional; a missin
 
 - Keep Python 3.14, FastAPI, and vanilla JavaScript with no frontend build chain. Dependency versions are pinned in `pyproject.toml` (runtime in `[project].dependencies`, tests in the `dev` group). After changing a pin, run `uv lock` and `uv export --format requirements-txt --no-hashes --no-emit-project -o requirements.txt`; never edit `uv.lock` or `requirements.txt` by hand.
 - Use `pyarrow.parquet.ParquetFile` for metadata, schema, and `iter_batches`. Use DuckDB `read_parquet` for paged previews and child/explode transformations.
-- Stream database loads in batches; never materialize the whole Parquet file in memory. Commit each batch; the default batch size is 10,000 rows. Oracle uses `executemany` array binds and `setinputsizes` for LOBs; MySQL and PostgreSQL use `executemany`.
+- Stream database loads in batches; never materialize the whole Parquet file in memory. Commit each batch; the default batch size is 10,000 rows. Oracle uses `executemany` array binds and `setinputsizes` for LOBs; MySQL uses `executemany`; PostgreSQL uses text-format `COPY ... FROM STDIN` and falls back to `executemany` when the table refuses COPY (row-level security).
 - Run loads through background jobs with progress polling, cancellation, and failure location reporting.
 - Keep DDL generation as pure functions from `TableModel`/`ColumnModel` to SQL. Compare DDL output with files in `tests/golden/`.
 - Keep user-facing API errors and warnings as codes (`E_*`, `W_*`) with parameters; translate messages in every `app/i18n/*.json` catalog.

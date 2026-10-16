@@ -28,7 +28,7 @@ def error_code(response) -> str:
 
 def test_upload_stream_saves_safe_name_and_delete_stays_in_upload_dir(tmp_path, parquet_path):
     app.state.config = configured(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post(
             "/api/files/upload",
             files={"file": ("../../unsafe.parquet", parquet_path.read_bytes(), "application/octet-stream")},
@@ -51,7 +51,7 @@ def test_upload_stream_saves_safe_name_and_delete_stays_in_upload_dir(tmp_path, 
 
 def test_upload_rejects_invalid_magic_and_removes_partial_file(tmp_path):
     app.state.config = configured(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post(
             "/api/files/upload",
             files={"file": ("not-parquet.parquet", b"not a parquet file", "application/octet-stream")},
@@ -64,7 +64,7 @@ def test_upload_rejects_invalid_magic_and_removes_partial_file(tmp_path):
 def test_upload_rejects_size_over_limit_and_removes_partial_file(tmp_path):
     app.state.config = configured(tmp_path, upload_max_mb=1)
     payload = b"P" * (1024 * 1024 + 1)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post(
             "/api/files/upload",
             files={"file": ("large.parquet", payload, "application/octet-stream")},
@@ -84,7 +84,7 @@ def test_upload_rejects_large_content_length_before_reading_body(tmp_path):
         raise AssertionError("request body should not be consumed")
         yield b""
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post(
             "/api/files/upload",
             content=unread_body(),
@@ -116,7 +116,7 @@ def test_upload_rejects_streamed_body_without_content_length_and_removes_partial
         yield file_data
         yield suffix
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post(
             "/api/files/upload",
             content=body_chunks(),
@@ -130,7 +130,7 @@ def test_upload_rejects_streamed_body_without_content_length_and_removes_partial
 def test_upload_requires_exactly_one_file_part_named_file(tmp_path, parquet_path):
     app.state.config = configured(tmp_path)
     payload = parquet_path.read_bytes()
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         missing = client.post(
             "/api/files/upload",
             content=b"--pb-empty--\r\n",
@@ -160,7 +160,7 @@ def test_upload_requires_exactly_one_file_part_named_file(tmp_path, parquet_path
 
 def test_uploaded_file_can_be_inspected_previewed_and_deleted(tmp_path, parquet_path):
     app.state.config = configured(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         uploaded = client.post(
             "/api/files/upload",
             files={"file": ("inspection.parquet", parquet_path.read_bytes(), "application/octet-stream")},
@@ -192,7 +192,7 @@ def test_local_path_and_browse_reject_escape_and_allow_in_root_file(tmp_path, pa
     outside = tmp_path / "outside.parquet"
     outside.write_bytes(parquet_path.read_bytes())
     app.state.config = configured(tmp_path, (root,))
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         roots = client.get("/api/files/browse")
         assert roots.json()["roots"] == [str(root.resolve())]
         listing = client.get("/api/files/browse", params={"path": str(root)}).json()
@@ -226,7 +226,7 @@ def test_symlink_escape_is_rejected_when_symlinks_are_available(tmp_path, parque
         pytest.skip("symlinks cannot be created in this environment")
 
     app.state.config = configured(tmp_path, (root,))
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         response = client.post("/api/files/local", json={"path": str(link)})
         assert response.status_code == 403
         assert error_code(response) == "E_PATH_NOT_ALLOWED"
@@ -243,7 +243,7 @@ def test_local_inspection_and_preview_do_not_change_source(tmp_path, parquet_pat
     digest_before = hashlib.sha256(local_file.read_bytes()).hexdigest()
     app.state.config = configured(tmp_path, (root,))
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         selected = client.post("/api/files/local", json={"path": str(local_file)}).json()["file"]
         inspect = client.get(f"/api/files/{selected['file_id']}/inspect")
         assert inspect.status_code == 200

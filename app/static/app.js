@@ -554,7 +554,6 @@ function jobView(job) {
   el("span", {}, t("load.count_result", {
     expected: formatNumber(item.expected_rows),
     actual: formatNumber(item.actual_rows),
-    database: formatNumber(item.database_count),
   })),
   ));
   return el("div", { class: "load-job" },

@@ -7,6 +7,7 @@ The only input to this module is the validated ``DbProfile`` produced by
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 import oracledb
@@ -14,6 +15,7 @@ import pymysql
 import psycopg
 
 from app.core.config import DbProfile
+from app.core.dialects import quote_identifier
 from app.core.errors import PBError
 
 
@@ -24,6 +26,12 @@ class BatchInsertError(Exception):
         super().__init__("batch insert failed")
         self.row_offset = max(0, int(row_offset))
         self.driver_code = code
+
+
+def reported_rows(cursor: Any, rows: Sequence[Any]) -> int:
+    """Return the row count the driver reported for one batch, or the batch size if it reported none."""
+    count = getattr(cursor, "rowcount", -1)
+    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else len(rows)
 
 
 def require_online(profile: DbProfile) -> None:
@@ -113,7 +121,7 @@ def connect(profile: DbProfile):
                 autocommit=False,
             )
             if profile.schema:
-                schema_identifier = '"' + profile.schema.replace('"', '""') + '"'
+                schema_identifier = quote_identifier(profile.schema, "postgres")
                 cursor = connection.cursor()
                 try:
                     cursor.execute("SELECT set_config('search_path', %s, false)", (schema_identifier,))
@@ -137,16 +145,6 @@ def close_quietly(connection: Any) -> None:
         connection.close()
     except Exception:
         pass
-
-
-def _identifier(name: str, profile: DbProfile, quoted: bool) -> str:
-    if not quoted:
-        return name
-    if profile.kind == "oracle":
-        return '"' + name.replace('"', '""') + '"'
-    if profile.kind == "postgres":
-        return '"' + name.replace('"', '""') + '"'
-    return "`" + name.replace("`", "``") + "`"
 
 
 def _lookup_name(name: str, profile: DbProfile, quoted: bool) -> str:
@@ -217,7 +215,7 @@ def table_columns(connection: Any, profile: DbProfile, table_name: str, *, quote
 def count_table(connection: Any, profile: DbProfile, table_name: str, *, quoted: bool = False) -> int:
     """Return COUNT(*) from a planned table name."""
     cursor = connection.cursor()
-    name = _identifier(table_name, profile, quoted)
+    name = quote_identifier(table_name, profile.kind, quoted)
     try:
         cursor.execute(f"SELECT COUNT(*) FROM {name}")
         row = cursor.fetchone()

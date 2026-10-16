@@ -5,20 +5,17 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from app.core.db import BatchInsertError, driver_code
+from app.core.db import BatchInsertError, driver_code, reported_rows
 from app.core.errors import PBError
+from app.core.dialects import quote_identifier
 from app.core.model import TableModel
-
-
-def _identifier(name: str, quoted: bool) -> str:
-    return "`" + name.replace("`", "``") + "`" if quoted else name
 
 
 def insert_sql(table: TableModel) -> str:
     """Build a MySQL multi-VALUES template for one planned table."""
     quoted = table.identifier_policy == "quoted"
-    name = _identifier(table.name, quoted)
-    columns = ", ".join(_identifier(column.name, quoted) for column in table.columns)
+    name = quote_identifier(table.name, "mysql", quoted)
+    columns = ", ".join(quote_identifier(column.name, "mysql", quoted) for column in table.columns)
     binds = ", ".join("%s" for _ in table.columns)
     return f"INSERT INTO {name} ({columns}) VALUES ({binds})"
 
@@ -61,16 +58,17 @@ def insert_batch(
     rows: Sequence[tuple[Any, ...]],
     *,
     use_local_infile: bool = False,
-) -> None:
-    """Insert one bounded batch; diagnose a failed multi-VALUES statement."""
+) -> int:
+    """Insert one bounded batch and return the driver's row count; diagnose a failed statement."""
     if use_local_infile:
         raise PBError("E_LOCAL_INFILE_UNAVAILABLE")
     if not rows:
-        return
+        return 0
     cursor = connection.cursor()
     sql = insert_sql(table)
     try:
         cursor.executemany(sql, rows)
+        return reported_rows(cursor, rows)
     except Exception as exc:
         code = driver_code("mysql", exc)
         try:
