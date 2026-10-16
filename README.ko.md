@@ -19,12 +19,14 @@ ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Orac
 
 ## 스크린샷
 
-예제 데이터: struct·list 컬럼이 있는 2,500행짜리 생성 파일 `orders.parquet`.
+예제 데이터: struct·list 컬럼이 있는 2,500행짜리 생성 파일 `orders.parquet`. INSERT 스크린샷은 데모용 Oracle 테이블 `ORDERS`를 사용했습니다.
 
-| 파일 선택 | 스키마·통계 조회 |
+| 파일 선택 | 파일 살펴보기: 스키마·통계 |
 |---|---|
-| ![파일 선택과 DB 상태](docs/screenshots/ko-select.png) | ![파일 개요, 컬럼 통계, 스키마 트리](docs/screenshots/ko-inspect.png) |
-| **데이터 미리보기** | **DDL 생성 (PostgreSQL, 자식 테이블)** |
+| ![파일 선택과 DB 상태](docs/screenshots/ko-select.png) | ![작업 탭, 파일 개요, 컬럼 통계, 스키마 트리](docs/screenshots/ko-inspect.png) |
+| **기존 테이블에 INSERT: 테이블 검색** | **기존 테이블에 INSERT: 컬럼 대응** |
+| ![입력할 때마다 걸러지는 테이블 목록](docs/screenshots/ko-insert-search.png) | ![이름으로 맞춘 파일 컬럼과 테이블 컬럼](docs/screenshots/ko-insert.png) |
+| **데이터 미리보기** | **새 테이블 만들기: DDL (PostgreSQL, 자식 테이블)** |
 | ![페이지 단위 데이터 미리보기](docs/screenshots/ko-preview.png) | ![생성된 DDL](docs/screenshots/ko-ddl.png) |
 
 ## 요구사항
@@ -207,6 +209,7 @@ $python = ".\.venv\Scripts\python.exe"
 & $python -m app preview "D:\data\part.parquet" --json
 & $python -m app ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
 & $python -m app load "D:\data\part.parquet" --dialect mysql --table PB_TEST_PART --batch-size 1000
+& $python -m app load "D:\data\2025.parquet" --dialect mysql --table PB_TEST_PART --column id --column name --insert-only
 & $python -m app config check
 ```
 
@@ -221,12 +224,13 @@ python=.venv/bin/python
 "$python" -m app preview "/home/me/data/part.parquet" --json
 "$python" -m app ddl "/home/me/data/part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
 "$python" -m app load "/home/me/data/part.parquet" --dialect mysql --table PB_TEST_PART --batch-size 1000
+"$python" -m app load "/home/me/data/2025.parquet" --dialect mysql --table PB_TEST_PART --column id --column name --insert-only
 "$python" -m app config check
 ```
 
 `ddl`과 `load`의 dialect 선택지는 현재 지원 방언에서 가져옵니다. `--lang <코드>`는 각 명령 뒤에 붙여 `app/i18n/` 카탈로그 중 출력 언어를 고르며 기본값보다 우선합니다. 지정하지 않으면 `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, `LANG` 순으로 확인하고, Windows에서는 시스템 로캘과 UI 언어도 확인합니다. 지원되는 로캘은 해당 카탈로그를 사용하고, 지원하지 않거나 찾을 수 없는 언어는 영어로 처리합니다. `load`의 `truncate` 또는 `drop_create`는 대상 부모 테이블명과 같은 `--confirm-table` 값이 필요하며, Ctrl+C는 배치 경계에서 적재를 취소하고 이미 커밋된 행을 결과에 표시합니다. 종료 코드는 성공 `0`, 실패 `1`, 확인 거부 `2`, 취소 `130`입니다. DB 비밀번호는 CLI 인자로 받지 않으며 기존 `password_env` 또는 `config/parqbridge.local.toml` 설정을 사용합니다.
 
-`ddl -o`는 입력 Parquet 또는 Parquet 파일을 출력 대상으로 거부합니다. 기존 출력 파일을 바꾸려면 `--force`를 지정하세요. `ddl`과 `load`는 `--length-scan full|sample`로 길이 측정 범위를 선택할 수 있고 기본값은 `full`입니다.
+`ddl -o`는 입력 Parquet 또는 Parquet 파일을 출력 대상으로 거부합니다. 기존 출력 파일을 바꾸려면 `--force`를 지정하세요. `ddl`과 `load`는 `--length-scan full|sample`로 길이 측정 범위를 선택할 수 있고 기본값은 `full`입니다. `--column NAME`을 반복해 지정하면 해당 최상위 컬럼만 포함하며, 지정하지 않으면 모든 컬럼을 포함합니다. `load --insert-only`는 `CREATE` 없이 기존 `--table`에 INSERT하며 파일 컬럼을 테이블 컬럼과 이름으로 맞춥니다. `--if-exists`, `--mode child|explode`, `--parent-key`, `--explode-column`과 함께 쓸 수 없습니다.
 
 선택 사항으로 editable console script를 설치할 수 있습니다. 기존 의존성을 설치한 뒤 아래 명령을 직접 실행하면 `parqbridge` 명령을 사용할 수 있습니다.
 
@@ -237,15 +241,15 @@ python=.venv/bin/python
 ## 사용 흐름
 
 1. 업로드 탭에서 `.parquet` 파일을 선택하거나 끌어다 놓은 뒤 활성화된 **업로드하고 열기** 버튼을 누릅니다. 로컬 경로 탭에서는 허용된 폴더를 탐색합니다.
-2. 메타데이터, 컬럼 통계, 스키마, flat/nested 분류와 행 페이지 미리보기를 확인합니다.
-3. 펼치기 모드, 대상 DB, 테이블명과 컬럼 옵션을 선택해 DDL과 변환 결과 미리보기를 만듭니다.
-4. DDL을 복사하거나 `.sql`로 내려받습니다.
-5. DB가 온라인이면 연결 테스트 후 기존 테이블 정책을 고르고 `CREATE + INSERT`를 실행합니다.
-6. 진행률을 확인합니다. 완료 후 원본 또는 변환 예상 행 수와 DB `COUNT(*)` 결과를 비교합니다.
+2. 작업 탭을 고릅니다. 선택한 탭은 이 브라우저에 기억됩니다.
+   - **파일 살펴보기**: 메타데이터, 컬럼 통계, 스키마, flat/nested 분류와 행 페이지 미리보기를 확인합니다.
+   - **기존 테이블에 INSERT**: 대상 DB와 테이블을 고르고(현재 스키마의 테이블 목록을 한 번 받아 두고 입력할 때마다 걸러 보여 줍니다) **테이블 확인**을 누른 뒤, 파일 컬럼과 테이블 컬럼의 대응을 확인하고 INSERT합니다. DDL을 만들지 않고 문자열 길이 측정도 기다리지 않습니다. [기존 테이블에 INSERT](#기존-테이블에-insert)를 참고하세요.
+   - **새 테이블 만들기**: 펼치기 모드, 대상 DB, 테이블명과 컬럼 옵션을 선택해 DDL과 변환 결과 미리보기를 만듭니다. 기본값은 모든 최상위 컬럼이며, **컬럼** 목록에서 체크를 해제한 컬럼은 DDL, CREATE, INSERT에서 빠집니다. DDL을 복사하거나 `.sql`로 내려받고, DB가 온라인이면 아래 기존 테이블 정책으로 `CREATE + INSERT`를 실행합니다.
+3. 진행률을 확인합니다. 완료 후 원본 또는 변환 예상 행 수와 DB `COUNT(*)` 결과를 비교합니다.
 
 기본 테이블명은 선택한 DB의 이름 규칙을 따르며, 대상 DB를 바꾸면 자동으로 갱신됩니다. 직접 수정한 이름은 다른 파일을 선택할 때까지 유지됩니다.
 
-주요 API는 `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/release`, `GET /api/jobs/{job_id}`입니다. 파일 핸들과 작업 상태는 프로세스 메모리에 있으므로 서버를 재시작하면 파일을 다시 선택해야 합니다.
+주요 API는 `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/insert/check`, `POST /api/files/{file_id}/insert`, `GET /api/db/{dialect}/tables`, `POST /api/files/{file_id}/release`, `GET /api/jobs/{job_id}`입니다. 파일 핸들과 작업 상태는 프로세스 메모리에 있으므로 서버를 재시작하면 파일을 다시 선택해야 합니다.
 
 ## 펼치기 모드
 
@@ -283,6 +287,22 @@ python=.venv/bin/python
 웹에서 로컬 파일이나 업로드 파일을 선택하면 전체 측정이 백그라운드에서 시작됩니다. 측정 상태는 `GET /api/files/{file_id}/length-scan`으로 확인할 수 있습니다. 완료 전 `full` DDL 요청은 표본 추정 DDL과 진행 상태를 즉시 돌려주고, 측정이 끝나면 화면에서 확정 DDL을 자동으로 다시 불러옵니다. 적재는 작업 안에서 확정 측정이 끝날 때까지 기다리며, 그 측정값으로 화면의 확정 DDL과 같은 테이블 모델을 만듭니다. CLI에서는 동기식으로 측정합니다.
 
 `full` 측정은 현재 파일의 최대값에 여유를 두지 않으므로, 다른 파일을 같은 테이블에 `append`할 때 더 긴 값이 들어오면 폭이 부족할 수 있습니다. 여러 파일을 이어 넣을 계획이면 `max` 또는 `lob`를 고려하세요. Oracle `max`는 `VARCHAR2(1000 CHAR)`를 기본 폭으로 쓰고 측정값이 1,000자를 넘거나 4,000바이트 한도를 넘으면 `CLOB`으로 올립니다. MySQL `max`는 측정값에 맞춰 `VARCHAR(16383)`, `TEXT`, `MEDIUMTEXT`, `LONGTEXT` 중 필요한 폭을 선택하며 테이블 행 크기 예산에 따라 추가 강등될 수 있습니다. PostgreSQL `max`와 `lob`는 길이 제한 없는 `TEXT`를 씁니다. Oracle `lob`는 `CLOB`, MySQL `lob`는 `LONGTEXT`입니다.
+
+## 컬럼 선택
+
+체크를 해제한 컬럼은 DDL, 생성되는 테이블, INSERT되는 행에서 모두 빠집니다. Parquet은 컬럼별로 따로 저장되므로 적재할 때도 파일에서 선택한 컬럼만 읽습니다. `child`의 부모 키와 `explode` 컬럼은 반드시 선택해야 합니다. `child` 모드에서 list나 map 컬럼을 빼면 그 자식 테이블도 만들지 않습니다. API는 `columns`에 최상위 컬럼 이름 목록을 받으며, 생략하거나 `null`이면 모든 컬럼을 포함합니다.
+
+## 기존 테이블에 INSERT
+
+**기존 테이블에 INSERT** 탭(API `POST /api/files/{file_id}/insert`, CLI `load --insert-only`)은 1년치 데이터를 추가하는 경우처럼, 이미 있는 테이블에 파일의 행을 더할 때 씁니다. `CREATE`, `TRUNCATE`, `DROP`은 실행하지 않으며, 테이블이 컬럼 타입을 이미 정하고 있으므로 문자열 길이 측정을 기다리지 않습니다.
+
+- 테이블은 프로필의 현재 Oracle 스키마, MySQL 데이터베이스, PostgreSQL 스키마에서 대소문자를 무시하고 찾으며, 정확히 같은 이름이 우선합니다. 없으면 `E_INSERT_TABLE_MISSING`, 정확한 이름 없이 대소문자만 다른 테이블이 여러 개면 `E_INSERT_TABLE_AMBIGUOUS`를 반환합니다.
+- 파일의 최상위 컬럼은 테이블 컬럼과 이름으로 맞추며, 정확히 같은 이름을 먼저 찾고 그다음 대소문자를 무시합니다. 중첩 값은 JSON 텍스트로 넣습니다. 계산(virtual/generated) 컬럼은 대응하지 않습니다.
+- `POST /api/files/{file_id}/insert/check`에 `{"dialect", "table_name"}`를 보내면 테이블의 모든 컬럼과 타입, 대응한 파일 컬럼, 기본값 없는 `NOT NULL` 여부, 그리고 테이블에 없는 파일 컬럼(`W_INSERT_FILE_COLUMNS_SKIPPED`)을 반환합니다. 대응한 컬럼의 체크를 해제하거나 `columns`에 대응한 파일 컬럼 이름 일부를 보내면, 빠진 테이블 컬럼은 기본값이나 `NULL`이 됩니다.
+- 기본값 없는 `NOT NULL` 컬럼에 파일 값이 없으면 트리거가 채울 수도 있으므로 오류 대신 `W_INSERT_REQUIRED_COLUMNS` 경고를 냅니다. 채워지지 않으면 DB가 첫 배치를 거부합니다.
+- 값은 DB가 기존 컬럼 타입으로 변환하므로, 컬럼보다 긴 문자열처럼 맞지 않는 값이 있으면 해당 배치가 실패하고 위치가 표시됩니다.
+
+`POST /api/files/{file_id}/load`는 더 이상 `existing_policy: "insert_only"`를 받지 않으므로 위 INSERT API를 쓰세요. 부모/자식 테이블 묶음에 이어 넣으려면 **새 테이블 만들기**에서 `append` 정책을 사용하세요.
 
 ## 기존 테이블 정책
 

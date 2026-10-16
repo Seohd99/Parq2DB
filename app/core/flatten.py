@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -242,9 +242,14 @@ def _count_formula(expression: str, preserve_empty: bool = False) -> str:
     return f"COALESCE(len({expression}), 0)"
 
 
-def _source_parts(plan: SelectPlan, source: str = "read_parquet(?)") -> tuple[str, str]:
-    """Return the WITH clause and FROM clause that expose the source as ``src``."""
-    aliases = alias_list(plan.source_columns)
+def _source_parts(
+    plan: SelectPlan, source: str = "read_parquet(?)", *, projected: bool = False,
+) -> tuple[str, str]:
+    """Return the WITH clause and FROM clause that expose the source as ``src``.
+
+    ``projected`` means the source holds only ``plan.read_columns`` in file order.
+    """
+    aliases = alias_list(plan.read_aliases if projected else plan.source_columns)
     if not plan.needs_row_id:
         return "", f"FROM {source} AS src{aliases}"
     if plan.row_id_strategy == "file_row_number" and source == "read_parquet(?)":
@@ -265,11 +270,12 @@ def _select_sql_from_parts(
     dialect: str,
     limit: int | None = None,
     source: str = "read_parquet(?)",
+    projected: bool = False,
 ) -> str:
     selections = plan.selections
     joins = plan.joins
     order_by = plan.order_by
-    cte, from_clause = _source_parts(plan, source)
+    cte, from_clause = _source_parts(plan, source, projected=projected)
 
     rendered: list[str] = []
     for item in selections:
@@ -303,10 +309,12 @@ def build_select_sql(
     limit: int | None = None,
     offset: int = 0,
     source: str = "read_parquet(?)",
+    projected: bool = False,
 ) -> str:
     """Return the SELECT SQL for a table, with path parameters to bind.
 
     ``source`` replaces ``read_parquet(?)``, for example with a registered Arrow batch.
+    Set ``projected`` when that source holds only the plan's ``read_columns``.
     """
     if table.select_plan is None:
         raise ValueError(f"table {table.name} has no select plan")
@@ -317,6 +325,7 @@ def build_select_sql(
         dialect=dialect,
         limit=limit,
         source=source,
+        projected=projected,
     )
 
 
@@ -461,6 +470,20 @@ def _check_unique_names(tables: list[TableModel], policy: str, dialect: str) -> 
             column_keys.add(column_key)
 
 
+def select_columns(schema: pa.Schema, columns: Sequence[str] | None) -> list[pa.Field]:
+    """Return the selected top-level fields in file order; ``None`` selects every field."""
+    if columns is None:
+        return list(schema)
+    wanted = set(columns)
+    if not wanted:
+        raise PBError("E_COLUMNS_EMPTY")
+    names = set(schema.names)
+    for name in columns:
+        if name not in names:
+            raise PBError("E_COLUMN_NOT_FOUND", column=name)
+    return [field for field in schema if field.name in wanted]
+
+
 def plan_tables(
     schema: pa.Schema,
     *,
@@ -478,8 +501,12 @@ def plan_tables(
     preserve_empty: bool = True,
     child_max_depth: int = 3,
     reserved_word_provider: ReservedWordProvider | None = None,
+    columns: Sequence[str] | None = None,
 ) -> list[TableModel]:
-    """Build a parent/child table plan from the schema without reading Parquet data."""
+    """Build a parent/child table plan from the schema without reading Parquet data.
+
+    ``columns`` limits the plan to those top-level source columns; ``None`` keeps all.
+    """
     validate_table_name(table_name, dialect, column_policy)
     if mode not in {"none", "child", "explode"}:
         raise PBError("E_FLATTEN_MODE_INVALID", mode=mode)
@@ -498,6 +525,11 @@ def plan_tables(
     source_columns = source_aliases(len(schema))
     alias_by_name = {field.name: alias for field, alias in zip(schema, source_columns)}
 
+    included = select_columns(schema, columns)
+    included_names = {field.name for field in included}
+    read_columns = tuple(field.name for field in included)
+    read_aliases = tuple(alias_by_name[name] for name in read_columns)
+
     def source_ref(name: str) -> str:
         return f"src.{_quote(alias_by_name[name])}"
 
@@ -505,6 +537,8 @@ def plan_tables(
         key_field = field_by_name.get(parent_key)
         if key_field is None or container_kind(key_field.type) is not None:
             raise PBError("E_PARENT_KEY_INVALID", column=parent_key)
+        if parent_key not in included_names:
+            raise PBError("E_COLUMN_NOT_SELECTED", column=parent_key)
     else:
         key_field = None
 
@@ -512,6 +546,8 @@ def plan_tables(
         selected = field_by_name.get(explode_column or "")
         if selected is None or container_kind(selected.type) != "list":
             raise PBError("E_EXPLODE_COLUMN_INVALID", column=explode_column or "")
+        if selected.name not in included_names:
+            raise PBError("E_COLUMN_NOT_SELECTED", column=selected.name)
     else:
         selected = None
 
@@ -767,6 +803,8 @@ def plan_tables(
                 expected_expression=f"map_entries({expression})" if kind == "map" else expression,
                 expected_joins=outer_joins,
                 source_columns=source_columns,
+                read_columns=read_columns,
+                read_aliases=read_aliases,
                 order_by=(
                     f"src.{_quote(internal_row_id)}",
                     *(expression for _, expression in parent_keys),
@@ -882,7 +920,7 @@ def plan_tables(
     root_child_names: list[str] = []
 
     if mode == "none":
-        for field in schema:
+        for field in included:
             expr = source_ref(field.name)
             is_json = container_kind(field.type) is not None
             add_column(
@@ -892,7 +930,7 @@ def plan_tables(
             )
     elif mode == "child":
         root_key_added = False
-        for field in schema:
+        for field in included:
             expr = source_ref(field.name)
             kind = container_kind(field.type)
             if key_field is not None and field.name == key_field.name and not root_key_added:
@@ -942,7 +980,7 @@ def plan_tables(
             alias=exploded_alias,
             join_type="left" if preserve_empty else "cross",
         )
-        for field in schema:
+        for field in included:
             expr = source_ref(field.name)
             if field.name == selected.name:
                 element_expr = f"{_quote(exploded_alias)}.{_quote('value')}"
@@ -1003,6 +1041,8 @@ def plan_tables(
             explode_expression=expected_expression,
             preserve_empty=preserve_empty,
             source_columns=source_columns,
+            read_columns=read_columns,
+            read_aliases=read_aliases,
             order_by=(f"src.{_quote(internal_row_id)}", f"{_quote('u0')}.{_quote('ordinality')}") if mode == "explode" else (),
         ),
     )

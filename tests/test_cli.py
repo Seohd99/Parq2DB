@@ -491,3 +491,40 @@ def test_serve_non_loopback_override_warns(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
     assert cli.main(["serve", "--host", "0.0.0.0", "--port", "8766", "--lang", "ko"]) == 0
     assert "모든 인터페이스" in capsys.readouterr().err
+
+
+def test_load_insert_only_with_selected_columns_skips_create(monkeypatch, capsys, flat_parquet_path):
+    configure_cli(monkeypatch, flat_parquet_path.parent, online=True)
+    connection = FakeConnection()
+    connection.existing.add("PB_TEST_LOAD")
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    monkeypatch.setattr("app.core.insert_target.connect", lambda _profile: connection)
+    monkeypatch.setattr("app.core.insert_target.find_table", lambda _conn, _profile, name: name.upper())
+    stored = [
+        {"name": name, "data_type": "varchar(20)", "nullable": True, "has_default": False, "generated": False}
+        for name in ("ID", "NAME", "NOTE")
+    ]
+    monkeypatch.setattr("app.core.insert_target.describe_columns", lambda *_args: stored)
+    monkeypatch.setattr("app.core.jobs.table_columns", lambda *_args, **_kwargs: {"ID", "NAME", "NOTE"})
+    statements = []
+    monkeypatch.setattr("app.core.jobs._execute_statement", lambda _conn, _profile, sql: statements.append(sql))
+    assert cli.main([
+        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "pb_test_load",
+        "--column", "id", "--column", "name", "--insert-only", "--lang", "en",
+    ]) == 0
+    assert statements == []
+    assert connection.row_counts["PB_TEST_LOAD"] == 3
+    # The file column "active" has no table column, so it is skipped with a warning.
+    assert "active" in capsys.readouterr().err
+
+    assert cli.main([
+        "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_LOAD",
+        "--insert-only", "--mode", "child", "--lang", "en",
+    ]) == 1
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit):
+        cli.main([
+            "load", str(flat_parquet_path), "--dialect", "mysql", "--table", "PB_TEST_LOAD",
+            "--insert-only", "--if-exists", "append",
+        ])

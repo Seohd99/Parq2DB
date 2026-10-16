@@ -239,6 +239,7 @@ def _ddl_options(args: argparse.Namespace):
         parent_key=args.parent_key,
         explode_column=args.explode_column,
         json_check=getattr(args, "json_check", False),
+        columns=args.columns,
     )
 
 
@@ -367,12 +368,33 @@ def _load(args: argparse.Namespace) -> int:
     if not profile.online:
         raise PBError(profile.offline_reason or "E_DB_NOT_CONFIGURED", **profile.offline_params)
 
-    options = _ddl_options(args)
-    models, source_rows, reserved_warnings, _schema = _build_models(selected, options, _context(config))
-    validate_load_request(models, args.if_exists, args.confirm_table)
-    warnings = list(reserved_warnings)
-    for table in models:
-        warnings.extend(item for item in table.warnings if _warning_for_dialect(item, args.dialect))
+    if args.insert_only:
+        from app.core.insert_target import inspect_insert_target
+
+        # Existing tables fix the columns, so flatten and DDL options do not apply.
+        unsupported = [
+            name for name, value in (
+                ("mode", args.mode != "none"),
+                ("parent_key", args.parent_key),
+                ("explode_column", args.explode_column),
+            ) if value
+        ]
+        if unsupported:
+            raise PBError("E_BAD_REQUEST", fields=unsupported)
+        existing_policy = "insert_only"
+        model, report, source_rows = inspect_insert_target(selected.path, profile, args.table, args.columns)
+        if model is None:
+            raise PBError("E_INSERT_NO_MATCHING_COLUMNS")
+        models = [model]
+        warnings = list(report["warnings"])
+    else:
+        existing_policy = args.if_exists
+        options = _ddl_options(args)
+        models, source_rows, reserved_warnings, _schema = _build_models(selected, options, _context(config))
+        warnings = list(reserved_warnings)
+        for table in models:
+            warnings.extend(item for item in table.warnings if _warning_for_dialect(item, args.dialect))
+    validate_load_request(models, existing_policy, args.confirm_table)
     _print_warnings(_dedupe_warnings(warnings), args.lang)
 
     batch_size = args.batch_size or config.load.batch_size
@@ -384,7 +406,7 @@ def _load(args: argparse.Namespace) -> int:
             profile=profile,
             source_rows=source_rows,
             batch_size=batch_size,
-            existing_policy=args.if_exists,
+            existing_policy=existing_policy,
             confirm_table_name=args.confirm_table,
         )
         previous = None
@@ -549,6 +571,7 @@ def _parser() -> argparse.ArgumentParser:
     ddl.add_argument("--parent-key")
     ddl.add_argument("--explode-column")
     ddl.add_argument("--json-check", action="store_true", help="add Oracle IS JSON checks")
+    ddl.add_argument("--column", dest="columns", action="append", metavar="NAME", help="include only this top-level column; repeat for more (default: all columns)")
     ddl.add_argument("-o", "--output")
     ddl.add_argument("--force", action="store_true", help="replace an existing non-Parquet output file")
     ddl.set_defaults(handler=_ddl)
@@ -563,7 +586,13 @@ def _parser() -> argparse.ArgumentParser:
     load.add_argument("--length-scan", choices=("full", "sample"), default="full")
     load.add_argument("--parent-key")
     load.add_argument("--explode-column")
-    load.add_argument("--if-exists", choices=("fail", "truncate", "append", "drop_create"), default="fail")
+    load.add_argument("--column", dest="columns", action="append", metavar="NAME", help="include only this top-level column; repeat for more (default: all columns)")
+    policy = load.add_mutually_exclusive_group()
+    policy.add_argument("--if-exists", choices=("fail", "truncate", "append", "drop_create"), default="fail")
+    policy.add_argument(
+        "--insert-only", action="store_true",
+        help="insert into the existing --table without CREATE; file columns match table columns by name",
+    )
     load.add_argument("--confirm-table")
     load.add_argument("--batch-size", type=_positive_int)
     load.set_defaults(handler=_load)

@@ -529,3 +529,113 @@ def test_none_mode_load_keeps_columns_that_differ_only_by_case(monkeypatch, tmp_
     )
     assert [column.name for column in tables[0].columns] == ["A", "A_2"]
     assert inserted == [(1, 99), (2, 98)]
+
+
+def test_none_mode_load_reads_and_inserts_only_selected_columns(monkeypatch, flat_parquet_path):
+    with pq.ParquetFile(flat_parquet_path) as parquet:
+        schema = parquet.schema_arrow
+    tables = plan_tables(
+        schema, table_name="PB_TEST_PICK", dialect="mysql", string_strategy="max", columns=["name", "id"],
+    )
+    connection = FakeConnection()
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    from app.core import jobs
+
+    requested_columns = []
+    original_iter = pq.ParquetFile.iter_batches
+
+    def tracking_iter(self, *args, **kwargs):
+        requested_columns.append(kwargs.get("columns"))
+        return original_iter(self, *args, **kwargs)
+
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", tracking_iter)
+    inserted = []
+    original_insert = jobs.load_mysql.insert_batch
+
+    def capture(conn, table, rows):
+        inserted.extend(rows)
+        original_insert(conn, table, rows)
+
+    monkeypatch.setattr(jobs.load_mysql, "insert_batch", capture)
+    result = execute_load(
+        path=flat_parquet_path,
+        tables=tables,
+        profile=online_profile(),
+        source_rows=3,
+        batch_size=10,
+        existing_policy="fail",
+        cancel_event=threading.Event(),
+        progress=lambda *_: None,
+    )
+    assert requested_columns and all(columns == ["id", "name"] for columns in requested_columns)
+    assert "active" not in connection.statements[0].lower()
+    assert inserted == [(1, "한글"), (2, "two"), (3, "three")]
+    assert result["tables"][0]["matched"] is True
+
+
+def test_insert_only_requires_existing_tables_and_never_creates(flat_parquet_path):
+    tables = planned_table(flat_parquet_path)
+    connection = FakeConnection()
+    with pytest.raises(PBError) as caught:
+        _prepare_tables(connection, online_profile(), tables, "insert_only", threading.Event())
+    assert caught.value.code == "E_INSERT_TABLE_MISSING"
+    assert caught.value.params == {"table": "PB_TEST_JOB"}
+    assert connection.statements == []
+
+
+def test_insert_only_accepts_extra_table_columns_and_rejects_missing_ones(monkeypatch, flat_parquet_path):
+    tables = planned_table(flat_parquet_path)
+    wide = FakeConnection(existing={"PB_TEST_JOB"}, columns={"PB_TEST_JOB": {"ID", "NAME", "ACTIVE", "LOADED_AT"}})
+    wide.row_counts["PB_TEST_JOB"] = 5
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: wide)
+    result = execute_load(
+        path=flat_parquet_path,
+        tables=tables,
+        profile=online_profile(),
+        source_rows=3,
+        batch_size=10,
+        existing_policy="insert_only",
+        cancel_event=threading.Event(),
+        progress=lambda *_: None,
+    )
+    assert wide.statements == []
+    assert result["preparation_changes_applied"] is False
+    assert result["tables"][0]["actual_rows"] == 3
+    assert result["tables"][0]["database_count"] == 8
+    assert result["tables"][0]["matched"] is True
+
+    narrow = FakeConnection(existing={"PB_TEST_JOB"}, columns={"PB_TEST_JOB": {"ID"}})
+    with pytest.raises(PBError) as caught:
+        _prepare_tables(narrow, online_profile(), tables, "insert_only", threading.Event())
+    assert caught.value.code == "E_INSERT_COLUMNS_MISSING"
+    assert caught.value.params == {"table": "PB_TEST_JOB", "missing": ["ACTIVE", "NAME"]}
+
+
+def test_insert_only_with_generated_parent_key_requires_empty_tables(tmp_path):
+    tables = _generated_key_tables(tmp_path)
+    columns = {table.name: {column.name for column in table.columns} for table in tables}
+    populated = FakeConnection(existing={table.name for table in tables}, columns=columns)
+    populated.row_counts[tables[0].name] = 2
+    with pytest.raises(PBError) as caught:
+        _prepare_tables(populated, online_profile(), tables, "insert_only", threading.Event())
+    assert caught.value.code == "E_APPEND_GENERATED_KEY"
+
+
+def test_job_snapshot_reports_insert_only_policy(monkeypatch, flat_parquet_path):
+    tables = planned_table(flat_parquet_path)
+    connection = FakeConnection(existing={"PB_TEST_JOB"}, columns={"PB_TEST_JOB": {"ID", "NAME", "ACTIVE"}})
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    manager = LoadJobManager(max_workers=1)
+    try:
+        job = manager.submit(
+            path=flat_parquet_path,
+            tables=tables,
+            profile=online_profile(),
+            source_rows=3,
+            batch_size=10,
+            existing_policy="insert_only",
+            confirm_table_name=None,
+        )
+        assert job["existing_policy"] == "insert_only"
+    finally:
+        manager.shutdown()

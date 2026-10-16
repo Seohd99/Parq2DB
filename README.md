@@ -19,12 +19,14 @@ The default server address is `http://127.0.0.1:8765`. If a database profile is 
 
 ## Screenshots
 
-Sample data: a generated 2,500-row `orders.parquet` with struct and list columns.
+Sample data: a generated 2,500-row `orders.parquet` with struct and list columns. The INSERT screenshots use a demo Oracle table `ORDERS`.
 
-| Select a file | Inspect schema and statistics |
+| Select a file | Explore the file: schema and statistics |
 |---|---|
-| ![File selection and database status](docs/screenshots/en-select.png) | ![File overview, column statistics, and schema tree](docs/screenshots/en-inspect.png) |
-| **Preview data** | **Generate DDL (PostgreSQL, child tables)** |
+| ![File selection and database status](docs/screenshots/en-select.png) | ![Task tabs, file overview, column statistics, and schema tree](docs/screenshots/en-inspect.png) |
+| **INSERT into an existing table: search tables** | **INSERT into an existing table: column match** |
+| ![Table names filtered as you type](docs/screenshots/en-insert-search.png) | ![File columns matched to table columns by name](docs/screenshots/en-insert.png) |
+| **Preview data** | **Create a new table: DDL (PostgreSQL, child tables)** |
 | ![Paged data preview](docs/screenshots/en-preview.png) | ![Generated DDL](docs/screenshots/en-ddl.png) |
 
 ## Requirements
@@ -207,6 +209,7 @@ $python = ".\.venv\Scripts\python.exe"
 & $python -m app preview "D:\data\part.parquet" --json
 & $python -m app ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
 & $python -m app load "D:\data\part.parquet" --dialect mysql --table PB_TEST_PART --batch-size 1000
+& $python -m app load "D:\data\2025.parquet" --dialect mysql --table PB_TEST_PART --column id --column name --insert-only
 & $python -m app config check
 ```
 
@@ -221,12 +224,13 @@ python=.venv/bin/python
 "$python" -m app preview "/home/me/data/part.parquet" --json
 "$python" -m app ddl "/home/me/data/part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
 "$python" -m app load "/home/me/data/part.parquet" --dialect mysql --table PB_TEST_PART --batch-size 1000
+"$python" -m app load "/home/me/data/2025.parquet" --dialect mysql --table PB_TEST_PART --column id --column name --insert-only
 "$python" -m app config check
 ```
 
 The dialect choices for `ddl` and `load` come from the currently supported dialects. Add `--lang <code>` after each command to choose an output language from the catalogs in `app/i18n/`; an explicit value overrides the default. Without it, the CLI checks `PARQBRIDGE_LANG`, then `LC_ALL`, `LC_MESSAGES`, and `LANG`; Windows also checks the system locale and UI language. Supported locale preferences select their matching catalog, while unsupported or missing preferences default to English. The `truncate` or `drop_create` policy for `load` requires a `--confirm-table` value that matches the target parent table name. Ctrl+C cancels loading at a batch boundary and the result reports rows that were already committed. Exit codes are success `0`, failure `1`, confirmation denied `2`, and cancelled `130`. The CLI does not accept database passwords as arguments; it uses the existing `password_env` or `config/parqbridge.local.toml` setting.
 
-`ddl -o` rejects the input Parquet file and any Parquet file as an output target. Specify `--force` to replace an existing output file. `ddl` and `load` support `--length-scan full|sample` to choose the length measurement scope; the default is `full`.
+`ddl -o` rejects the input Parquet file and any Parquet file as an output target. Specify `--force` to replace an existing output file. `ddl` and `load` support `--length-scan full|sample` to choose the length measurement scope; the default is `full`. Repeat `--column NAME` to include only those top-level columns; without it, every column is included. `load --insert-only` inserts into the existing `--table` without `CREATE`, matching file columns to table columns by name; it cannot be combined with `--if-exists`, `--mode child|explode`, `--parent-key`, or `--explode-column`.
 
 As an optional step, you can install the editable console script. After installing the existing dependencies, run the command below directly to use the `parqbridge` command.
 
@@ -237,15 +241,15 @@ As an optional step, you can install the editable console script. After installi
 ## Usage flow
 
 1. Choose or drop a `.parquet` file in the Upload tab, then click **Upload and open** (enabled after selecting a file). Alternatively, browse an allowed folder in the Local path tab.
-2. Review the metadata, column statistics, schema, flat/nested classification, and paged row preview.
-3. Choose the flattening mode, target database, table name, and column options to generate DDL and preview the transformed data.
-4. Copy the DDL or download it as a `.sql` file.
-5. If the database is online, test the connection, choose a policy for existing tables, and run `CREATE + INSERT`.
-6. Follow the progress. When the job finishes, compare the source or expected transformed row count with the database `COUNT(*)` result.
+2. Pick a task tab. The choice is remembered in this browser.
+   - **Explore the file**: review the metadata, column statistics, schema, flat/nested classification, and paged row preview.
+   - **INSERT into an existing table**: choose the target database and table (table names in the current schema are fetched once and filtered as you type), click **Check table**, review how file columns match table columns, and run INSERT. No DDL is generated and no string-length scan is awaited. See [INSERT into an existing table](#insert-into-an-existing-table).
+   - **Create a new table**: choose the flattening mode, target database, table name, and column options to generate DDL and preview the transformed data. All top-level columns are included by default; uncheck columns under **Columns** to leave them out of the DDL, CREATE, and INSERT. Copy the DDL, download it as a `.sql` file, or, if the database is online, run `CREATE + INSERT` with an existing-table policy below.
+3. Follow the progress. When the job finishes, compare the source or expected transformed row count with the database `COUNT(*)` result.
 
 The suggested table name follows the selected database's naming rules and updates when you change the target database. A name you edit yourself is kept until you select another file.
 
-The main API endpoints are `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/release`, and `GET /api/jobs/{job_id}`. File handles and job state live in process memory, so you must select the file again after restarting the server.
+The main API endpoints are `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/insert/check`, `POST /api/files/{file_id}/insert`, `GET /api/db/{dialect}/tables`, `POST /api/files/{file_id}/release`, and `GET /api/jobs/{job_id}`. File handles and job state live in process memory, so you must select the file again after restarting the server.
 
 ## Flattening modes
 
@@ -283,6 +287,22 @@ String and binary type widths are selected with the `sample`, `max`, and `lob` s
 When a local or uploaded file is selected in the web app, a full scan starts in the background. Check its status with `GET /api/files/{file_id}/length-scan`. Before it finishes, a `full` DDL request immediately returns an estimated DDL based on a sample and the scan's progress; after the scan finishes, the app automatically reloads the confirmed DDL. A load job waits for the confirmed scan to finish and uses its measurements to create the same table model as the confirmed DDL shown on screen. The CLI measures synchronously.
 
 A `full` scan has no margin above the current file's maximum, so a longer value from another file appended to the same table may exceed the width. Consider `max` or `lob` if you plan to append multiple files. Oracle `max` uses `VARCHAR2(1000 CHAR)` as the default width and promotes it to `CLOB` if a measured value exceeds 1,000 characters or the 4,000-byte limit. MySQL `max` chooses the necessary width among `VARCHAR(16383)`, `TEXT`, `MEDIUMTEXT`, and `LONGTEXT` based on measured values, and may be further demoted by the table row-size budget. PostgreSQL `max` and `lob` use `TEXT` with no length limit. Oracle `lob` uses `CLOB`; MySQL `lob` uses `LONGTEXT`.
+
+## Column selection
+
+Unchecked columns are left out of the DDL, the created tables, and the inserted rows. Because Parquet stores each column separately, a load reads only the selected columns from the file. A `child` parent key or an `explode` column must be selected. In `child` mode, leaving out a list or map column also leaves out its child table. The API accepts `columns` as a list of top-level column names; omit it or send `null` to include every column.
+
+## INSERT into an existing table
+
+Use the **INSERT into an existing table** tab (API `POST /api/files/{file_id}/insert`, CLI `load --insert-only`) to add a file's rows to a table that already exists, such as one more year of data. It never runs `CREATE`, `TRUNCATE`, or `DROP`, and it does not wait for the string-length scan, because the table already fixes the column types.
+
+- The table is looked up in the profile's current Oracle schema, MySQL database, or PostgreSQL schema, ignoring letter case; an exact name wins. A missing table returns `E_INSERT_TABLE_MISSING`, and names that differ only by case without an exact match return `E_INSERT_TABLE_AMBIGUOUS`.
+- Top-level file columns match table columns by name, exactly first and then ignoring case. Nested values are inserted as JSON text. Computed (virtual/generated) table columns are never matched.
+- `POST /api/files/{file_id}/insert/check` with `{"dialect", "table_name"}` returns every table column with its type, matched file column, and whether it is `NOT NULL` without a default, plus file columns with no table column (`W_INSERT_FILE_COLUMNS_SKIPPED`). Unchecking matched columns, or sending `columns` with a subset of matched file column names, leaves those table columns to their default or `NULL`.
+- A `NOT NULL` column without a default that gets no file value produces `W_INSERT_REQUIRED_COLUMNS` instead of an error, because a trigger may fill it; otherwise the database rejects the first batch.
+- The database converts values to the existing column types, so a value that does not fit, such as a string longer than the column, fails that batch and the error reports its location.
+
+`POST /api/files/{file_id}/load` no longer accepts `existing_policy: "insert_only"`; use the insert endpoints above. To append to a parent/child table family, use **Create a new table** with the `append` policy.
 
 ## Existing table policy
 

@@ -4,6 +4,9 @@
 const I18N = { lang: "en", dict: {} };
 const LANG_KEY = "parqbridge.lang";
 const THEME_KEY = "parqbridge.theme";
+const WORK_TAB_KEY = "parqbridge.workTab";
+const WORK_TABS = ["explore", "insert", "create"];
+const TABLE_SUGGESTION_LIMIT = 50;
 let LANGUAGES = [];
 const state = {
   status: null,
@@ -13,7 +16,22 @@ const state = {
   preview: null,
   ddl: null,
   tableNameEdited: false,
+  selectedColumns: null,
   job: null,
+  // Which tab started the current job: "create" or "insert".
+  jobOrigin: null,
+  workTab: "explore",
+  insert: {
+    dialect: null,
+    report: null,
+    // Source columns to insert; null inserts every matched column.
+    selected: null,
+    error: null,
+    tables: {},
+    tablesLoading: {},
+    // Table-name suggestions filtered in the browser from the list fetched once per database.
+    suggest: { open: false, active: -1, items: [], hidden: 0 },
+  },
   connectionTests: {},
   browser: null,
   offset: 0,
@@ -78,9 +96,14 @@ async function setLang(lang, save = true) {
   document.querySelectorAll("[data-i18n]").forEach((node) => {
     node.textContent = t(node.dataset.i18n);
   });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
+    node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
+  });
   renderTheme();
   if (state.inspection) populateDdlControls();
+  document.getElementById("insert-dialect").dataset.signature = "";
   render();
+  renderInsertPlan();
 }
 
 function savedLang() {
@@ -213,6 +236,21 @@ function formatValue(value) {
   return String(value);
 }
 
+function topLevelFields() {
+  return state.inspection?.schema?.fields || [];
+}
+
+function isColumnSelected(name) {
+  return !state.selectedColumns || state.selectedColumns.has(name);
+}
+
+function selectedColumnNames() {
+  // null sends "all columns", so the default plan matches the whole file.
+  const fields = topLevelFields();
+  const chosen = fields.filter((field) => isColumnSelected(field.name)).map((field) => field.name);
+  return chosen.length === fields.length ? null : chosen;
+}
+
 function ddlOptions() {
   return {
     dialect: document.getElementById("ddl-dialect").value,
@@ -225,6 +263,7 @@ function ddlOptions() {
     preserve_empty: document.getElementById("ddl-preserve-empty").checked,
     parent_key: document.getElementById("ddl-parent-key").value || null,
     json_check: document.getElementById("ddl-json-check").checked,
+    columns: selectedColumnNames(),
     preview_offset: 0,
     preview_limit: 25,
   };
@@ -259,12 +298,50 @@ function populateDdlControls() {
   keySelect.replaceChildren(el("option", { value: "" }, t("ddl.generated_key")));
   explodeSelect.replaceChildren(el("option", { value: "" }, t("ddl.choose_column")));
   for (const field of fields) {
+    // A parent key or explode column must be one of the selected columns.
+    if (!isColumnSelected(field.name)) continue;
     if (field.kind === "scalar") keySelect.append(el("option", { value: field.name }, field.name));
     if (field.kind === "list") explodeSelect.append(el("option", { value: field.name }, field.name));
   }
   if ([...keySelect.options].some((option) => option.value === oldKey)) keySelect.value = oldKey;
   if ([...explodeSelect.options].some((option) => option.value === oldExplode)) explodeSelect.value = oldExplode;
+  renderColumnPicker();
   updateDdlControls();
+}
+
+function renderColumnPicker() {
+  const fields = topLevelFields();
+  const selected = fields.filter((field) => isColumnSelected(field.name)).length;
+  document.getElementById("ddl-columns-summary").textContent = t("ddl.columns_summary", {
+    selected,
+    total: fields.length,
+  });
+  document.getElementById("ddl-column-list").replaceChildren(...fields.map((field) => {
+    const box = el("input", { type: "checkbox", value: field.name });
+    box.checked = isColumnSelected(field.name);
+    box.addEventListener("change", () => setColumnSelected(field.name, box.checked));
+    return el("label", {}, box,
+      el("span", { class: "column-name" }, field.name),
+      el("span", { class: "column-kind" }, field.kind));
+  }));
+}
+
+function setColumnSelected(name, checked) {
+  if (!state.selectedColumns) state.selectedColumns = new Set(topLevelFields().map((field) => field.name));
+  if (checked) state.selectedColumns.add(name);
+  else state.selectedColumns.delete(name);
+  columnSelectionChanged();
+}
+
+function setAllColumnsSelected(checked) {
+  state.selectedColumns = new Set(checked ? topLevelFields().map((field) => field.name) : []);
+  columnSelectionChanged();
+}
+
+function columnSelectionChanged() {
+  state.ddl = null;
+  populateDdlControls();
+  renderDdl();
 }
 
 function renderDdl() {
@@ -412,16 +489,17 @@ function renderStatus() {
   );
 }
 
+function jobActive() {
+  return Boolean(state.job && ["queued", "running"].includes(state.job.status));
+}
+
 function renderLoad() {
   const kind = document.getElementById("ddl-dialect").value;
   const profile = state.status?.db?.[kind];
   const offline = !profile || !profile.online;
-  const active = state.job && ["queued", "running"].includes(state.job.status);
   const scan = state.lengthScan;
   const scanPending = Boolean(state.file && scan?.status !== "ready");
-  document.getElementById("load-start").disabled = !state.file || offline || Boolean(active) || scanPending;
-  document.getElementById("load-cancel").hidden = !active;
-  document.getElementById("load-cancel").disabled = !active;
+  document.getElementById("load-start").disabled = !state.file || offline || jobActive() || scanPending;
   document.getElementById("load-offline-reason").textContent = offline
     ? t("load.offline", { reason: profile?.reason ? tCode(profile.reason) : t("status.offline") })
     : "";
@@ -437,47 +515,341 @@ function renderLoad() {
   } else {
     measurementWait.textContent = "";
   }
-  const root = document.getElementById("load-job");
-  root.hidden = !state.job;
-  if (!state.job) return;
-  document.getElementById("load-job-status").textContent = t(`load.status.${state.job.status}`);
-  document.getElementById("load-job-elapsed").textContent = t("load.elapsed", {
-    seconds: state.job.elapsed_seconds,
-  });
-  document.getElementById("load-job-stage").textContent = state.job.stage === "measuring"
-    ? t("load.stage.measuring", { progress: state.job.measurement_progress_percent ?? 0 })
-    : state.job.stage === "loading"
-      ? t("load.stage.loading")
+  renderJobs();
+}
+
+function renderJobs() {
+  for (const origin of ["create", "insert"]) {
+    const root = document.getElementById(`${origin}-job`);
+    const job = state.jobOrigin === origin ? state.job : null;
+    root.replaceChildren(...(job ? [jobView(job)] : []));
+  }
+}
+
+function jobView(job) {
+  const active = ["queued", "running"].includes(job.status);
+  const stage = job.stage === "measuring"
+    ? t("load.stage.measuring", { progress: job.measurement_progress_percent ?? 0 })
+    : job.stage === "loading"
+      ? t(job.existing_policy === "insert_only" ? "load.stage.inserting" : "load.stage.loading")
       : t("load.stage.queued");
-  const progressRoot = document.getElementById("load-progress-list");
-  progressRoot.replaceChildren(...(state.job.progress || []).map((item) => {
+  const progress = (job.progress || []).map((item) => {
     const expected = item.rows_expected;
-    const progress = el("progress", {
-      max: expected && expected > 0 ? expected : 1,
-      value: expected && expected > 0 ? Math.min(item.rows_done, expected) : 0,
-    });
     return el("div", { class: "load-progress" },
       el("strong", {}, item.table),
-      progress,
+      el("progress", {
+        max: expected && expected > 0 ? expected : 1,
+        value: expected && expected > 0 ? Math.min(item.rows_done, expected) : 0,
+      }),
       el("span", { class: "muted" }, t("load.rows_progress", {
         done: formatNumber(item.rows_done),
         expected: formatNumber(expected),
       })),
     );
+  });
+  const results = (job.result?.tables || []).map((item) => el("div", {
+    class: `load-result ${item.matched ? "matched" : "mismatch"}`,
+  },
+  el("strong", {}, item.table),
+  el("span", {}, t("load.count_result", {
+    expected: formatNumber(item.expected_rows),
+    actual: formatNumber(item.actual_rows),
+    database: formatNumber(item.database_count),
+  })),
+  ));
+  return el("div", { class: "load-job" },
+    el("div", { class: "section-heading load-job-heading" },
+      el("strong", {}, t(`load.status.${job.status}`)),
+      el("span", { class: "muted" }, t("load.elapsed", { seconds: job.elapsed_seconds })),
+      active ? el("button", { type: "button", class: "danger-button job-cancel", "data-job-cancel": job.job_id }, t("load.cancel")) : null,
+    ),
+    active ? el("p", { class: "muted" }, stage) : null,
+    el("div", { class: "load-progress-list" }, ...progress),
+    el("ul", { class: "warnings" }, ...(job.error ? [el("li", {}, tCode(job.error))] : [])),
+    el("div", { class: "load-results" }, ...results),
+  );
+}
+
+function insertDialect() {
+  const dbs = state.status?.db || {};
+  if (state.insert.dialect && dbs[state.insert.dialect]) return state.insert.dialect;
+  return Object.keys(dbs).find((kind) => dbs[kind].online) || Object.keys(dbs)[0] || "oracle";
+}
+
+function insertProfile() {
+  return state.status?.db?.[insertDialect()];
+}
+
+function matchedInsertColumns() {
+  return (state.insert.report?.columns || []).filter((column) => column.source !== null);
+}
+
+function isInsertSelected(source) {
+  return !state.insert.selected || state.insert.selected.has(source);
+}
+
+function insertColumnNames() {
+  // null inserts every matched column, matching the server default.
+  const matched = matchedInsertColumns();
+  const chosen = matched.filter((column) => isInsertSelected(column.source)).map((column) => column.source);
+  return chosen.length === matched.length ? null : chosen;
+}
+
+function insertChosenCount() {
+  return matchedInsertColumns().filter((column) => isInsertSelected(column.source)).length;
+}
+
+function renderInsertControls() {
+  const select = document.getElementById("insert-dialect");
+  const dbs = Object.entries(state.status?.db || {});
+  const kind = insertDialect();
+  // Rebuild options only when they change, so an open dropdown is not reset by polling.
+  const signature = `${I18N.lang}|${dbs.map(([name, db]) => `${name}:${db.online}`).join(",")}`;
+  if (select.dataset.signature !== signature) {
+    select.replaceChildren(...dbs.map(([name, db]) => el("option", { value: name },
+      db.online ? t(`db.${name}`) : t("insert.dialect_offline", { name: t(`db.${name}`) }))));
+    select.dataset.signature = signature;
+  }
+  if (dbs.length) select.value = kind;
+  const profile = insertProfile();
+  const offline = !profile || !profile.online;
+  document.getElementById("insert-offline-reason").textContent = offline
+    ? t("load.offline", { reason: profile?.reason ? tCode(profile.reason) : t("status.offline") })
+    : "";
+  const offlineHelp = document.getElementById("insert-offline-help");
+  offlineHelp.hidden = !offline;
+  offlineHelp.textContent = offline ? t("load.offline_help") : "";
+
+  const tableName = document.getElementById("insert-table").value.trim();
+  const check = document.getElementById("insert-check");
+  if (check.dataset.busy !== "true") check.disabled = !state.file || offline || !tableName;
+
+  const feedback = document.getElementById("insert-feedback");
+  feedback.textContent = state.insert.error ? tCode(state.insert.error) : "";
+  feedback.classList.toggle("error", Boolean(state.insert.error));
+
+  const report = state.insert.report;
+  const start = document.getElementById("insert-start");
+  const count = insertChosenCount();
+  start.textContent = report
+    ? t("insert.start", { table: report.table, rows: formatNumber(report.source_rows), columns: count })
+    : t("insert.start_short");
+  if (start.dataset.busy !== "true") start.disabled = !report || !state.file || offline || count === 0 || jobActive();
+}
+
+function insertValueLabel(column) {
+  if (column.source !== null && isInsertSelected(column.source)) {
+    return [column.source_kind === "scalar" ? t("insert.value_file") : t("insert.value_json"), ""];
+  }
+  if (column.generated) return [t("insert.value_generated"), ""];
+  if (column.has_default) return [t("insert.value_default"), ""];
+  if (column.nullable) return [t("insert.value_null"), ""];
+  return [t("insert.value_missing"), "insert-value-missing"];
+}
+
+function renderInsertPlan() {
+  const report = state.insert.report;
+  document.getElementById("insert-plan").hidden = !report;
+  renderInsertControls();
+  if (!report) return;
+  const matched = matchedInsertColumns();
+  document.getElementById("insert-plan-title").textContent = report.table;
+  document.getElementById("insert-plan-summary").textContent = t("insert.summary", {
+    matched: matched.length,
+    columns: report.columns.length,
+    rows: formatNumber(report.source_rows),
+  });
+  const body = document.getElementById("insert-columns-body");
+  body.replaceChildren(...report.columns.map((column) => {
+    const chosen = column.source !== null && isInsertSelected(column.source);
+    const box = el("input", {
+      type: "checkbox",
+      "data-insert-source": column.source ?? "",
+      disabled: column.source === null,
+      "aria-label": column.name,
+    });
+    box.checked = chosen;
+    const [value, valueClass] = insertValueLabel(column);
+    return el("tr", { class: chosen ? "" : "insert-row-skipped" },
+      el("td", { class: "insert-check-col" }, box),
+      el("td", {}, el("code", {}, column.name)),
+      el("td", {}, el("code", { class: "muted" }, column.data_type)),
+      el("td", {}, column.source !== null ? el("code", {}, column.source) : el("span", { class: "muted" }, "—")),
+      el("td", { class: valueClass }, value),
+    );
   }));
-  const errorRoot = document.getElementById("load-job-error");
-  errorRoot.replaceChildren(...(state.job.error ? [el("li", {}, tCode(state.job.error))] : []));
-  const results = document.getElementById("load-results");
-  results.replaceChildren();
-  for (const item of state.job.result?.tables || []) {
-    results.append(el("div", { class: `load-result ${item.matched ? "matched" : "mismatch"}` },
-      el("strong", {}, item.table),
-      el("span", {}, t("load.count_result", {
-        expected: formatNumber(item.expected_rows),
-        actual: formatNumber(item.actual_rows),
-        database: formatNumber(item.database_count),
-      })),
-    ));
+  const all = document.getElementById("insert-columns-all");
+  const count = insertChosenCount();
+  all.disabled = matched.length === 0;
+  all.checked = matched.length > 0 && count === matched.length;
+  all.indeterminate = count > 0 && count < matched.length;
+
+  const warnings = [];
+  if (matched.length === 0) warnings.push({ code: "E_INSERT_NO_MATCHING_COLUMNS", params: {} });
+  if (report.file_only.length) {
+    warnings.push({ code: "W_INSERT_FILE_COLUMNS_SKIPPED", params: {
+      table: report.table, columns: report.file_only.map((item) => item.source),
+    } });
+  }
+  const missing = report.columns
+    .filter((column) => column.required && !(column.source !== null && isInsertSelected(column.source)))
+    .map((column) => column.name);
+  if (missing.length) {
+    warnings.push({ code: "W_INSERT_REQUIRED_COLUMNS", params: { table: report.table, columns: missing } });
+  }
+  document.getElementById("insert-warnings").replaceChildren(...warnings.map((item) => el("li", {}, tCode(item))));
+}
+
+function setInsertSelected(source, checked) {
+  const matched = matchedInsertColumns().map((column) => column.source);
+  if (!state.insert.selected) state.insert.selected = new Set(matched);
+  if (checked) state.insert.selected.add(source);
+  else state.insert.selected.delete(source);
+  renderInsertPlan();
+}
+
+function resetInsertPlan() {
+  state.insert.report = null;
+  state.insert.selected = null;
+  state.insert.error = null;
+}
+
+async function ensureInsertTables(kind = insertDialect()) {
+  const profile = state.status?.db?.[kind];
+  if (!profile?.online || state.insert.tables[kind] || state.insert.tablesLoading[kind]) return;
+  state.insert.tablesLoading[kind] = true;
+  try {
+    const result = await api(`/api/db/${encodeURIComponent(kind)}/tables`);
+    state.insert.tables[kind] = result.tables || [];
+  } catch (_) {
+    // Suggestions are optional; the table can still be typed and checked.
+    state.insert.tables[kind] = [];
+  } finally {
+    state.insert.tablesLoading[kind] = false;
+  }
+  suggestInsertTable(kind);
+  renderInsertControls();
+  if (document.activeElement?.id === "insert-table" && kind === insertDialect()) openTableSuggestions();
+}
+
+function filterTableNames(names, query) {
+  // Prefix matches first, then names that contain the query; both ignore case.
+  const needle = query.trim().toLowerCase();
+  if (!needle) return names;
+  const prefix = [];
+  const contains = [];
+  for (const name of names) {
+    const index = name.toLowerCase().indexOf(needle);
+    if (index === 0) prefix.push(name);
+    else if (index > 0) contains.push(name);
+  }
+  return [...prefix, ...contains];
+}
+
+function highlightMatch(name, query) {
+  const needle = query.trim().toLowerCase();
+  const index = needle ? name.toLowerCase().indexOf(needle) : -1;
+  if (index < 0) return [name];
+  return [name.slice(0, index), el("mark", {}, name.slice(index, index + needle.length)), name.slice(index + needle.length)];
+}
+
+function openTableSuggestions() {
+  const input = document.getElementById("insert-table");
+  const matches = filterTableNames(state.insert.tables[insertDialect()] || [], input.value);
+  const suggest = state.insert.suggest;
+  suggest.items = matches.slice(0, TABLE_SUGGESTION_LIMIT);
+  suggest.hidden = matches.length - suggest.items.length;
+  suggest.active = -1;
+  // An exact match alone needs no list.
+  suggest.open = suggest.items.length > 0
+    && !(suggest.items.length === 1 && suggest.items[0].toLowerCase() === input.value.trim().toLowerCase());
+  renderTableSuggestions();
+}
+
+function closeTableSuggestions() {
+  state.insert.suggest.open = false;
+  state.insert.suggest.active = -1;
+  renderTableSuggestions();
+}
+
+function renderTableSuggestions() {
+  const input = document.getElementById("insert-table");
+  const list = document.getElementById("insert-table-list");
+  const suggest = state.insert.suggest;
+  list.hidden = !suggest.open;
+  input.setAttribute("aria-expanded", String(suggest.open));
+  if (!suggest.open) {
+    input.removeAttribute("aria-activedescendant");
+    list.replaceChildren();
+    return;
+  }
+  const query = input.value;
+  const options = suggest.items.map((name, index) => el("li", {
+    id: `insert-table-option-${index}`,
+    role: "option",
+    class: index === suggest.active ? "active" : "",
+    "aria-selected": String(index === suggest.active),
+    "data-table": name,
+  }, ...highlightMatch(name, query)));
+  if (suggest.hidden > 0) {
+    options.push(el("li", { class: "combo-more muted", role: "presentation" }, t("insert.more_tables", { count: formatNumber(suggest.hidden) })));
+  }
+  list.replaceChildren(...options);
+  if (suggest.active >= 0) {
+    input.setAttribute("aria-activedescendant", `insert-table-option-${suggest.active}`);
+    document.getElementById(`insert-table-option-${suggest.active}`)?.scrollIntoView({ block: "nearest" });
+  } else {
+    input.removeAttribute("aria-activedescendant");
+  }
+}
+
+function chooseTableSuggestion(name) {
+  const input = document.getElementById("insert-table");
+  input.value = name;
+  closeTableSuggestions();
+  resetInsertPlan();
+  renderInsertPlan();
+  // Picking a table from the list checks it right away.
+  document.getElementById("insert-check").click();
+}
+
+function suggestInsertTable(kind = insertDialect()) {
+  // Prefill the file's default table name only when such a table already exists.
+  const input = document.getElementById("insert-table");
+  if (input.value.trim() || !state.file) return;
+  const wanted = state.file.default_table_names?.[kind];
+  if (!wanted) return;
+  const match = (state.insert.tables[kind] || []).find((name) => name.toLowerCase() === wanted.toLowerCase());
+  if (match) input.value = match;
+}
+
+function savedWorkTab() {
+  try {
+    const value = localStorage.getItem(WORK_TAB_KEY);
+    return WORK_TABS.includes(value) ? value : "explore";
+  } catch (_) {
+    return "explore";
+  }
+}
+
+function setWorkTab(tab, save = true) {
+  if (!WORK_TABS.includes(tab)) return;
+  state.workTab = tab;
+  for (const name of WORK_TABS) {
+    const selected = name === tab;
+    const button = document.getElementById(`work-tab-${name}`);
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    document.getElementById(`work-${name}`).hidden = !selected;
+  }
+  if (save) {
+    try { localStorage.setItem(WORK_TAB_KEY, tab); } catch (_) { /* Storage may be unavailable. */ }
+  }
+  if (tab === "insert") {
+    suggestInsertTable();
+    void ensureInsertTables();
+    renderInsertControls();
   }
 }
 
@@ -629,6 +1001,7 @@ function render() {
   renderInspection();
   renderDdl();
   renderLoad();
+  renderInsertControls();
   renderActivity();
 }
 
@@ -663,6 +1036,8 @@ async function loadSelection(file) {
     state.offset = 0;
     state.error = null;
     state.tableNameEdited = false;
+    state.selectedColumns = null;
+    resetInsertPlan();
     updateDdlControls();
     render();
     if (previousFileId && previousFileId !== file.file_id) {
@@ -672,6 +1047,8 @@ async function loadSelection(file) {
     try {
       state.inspection = await api(`/api/files/${encodeURIComponent(file.file_id)}/inspect`);
       populateDdlControls();
+      renderInsertPlan();
+      if (state.workTab === "insert") suggestInsertTable();
       await loadPreview();
     } catch (error) {
       showError(error);
@@ -737,6 +1114,7 @@ async function pollLoadJob() {
   try {
     state.job = await api(`/api/jobs/${encodeURIComponent(state.job.job_id)}`);
     renderLoad();
+    renderInsertControls();
     if (["queued", "running"].includes(state.job.status)) {
       window.setTimeout(pollLoadJob, 700);
     }
@@ -972,29 +1350,159 @@ async function init() {
             confirm_table_name: confirmName,
           }),
         });
+        state.jobOrigin = "create";
         state.error = null;
         renderLoad();
+        renderInsertControls();
         pollLoadJob();
       } catch (error) { showError(error); }
     }, renderLoad);
   });
-  document.getElementById("load-cancel").addEventListener("click", async (event) => {
-    if (!state.job?.job_id) return;
+  for (const id of ["create-job", "insert-job"]) {
+    document.getElementById(id).addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-job-cancel]");
+      if (!button || !state.job?.job_id) return;
+      await withBusy(button, async () => {
+        try {
+          state.job = await api(`/api/jobs/${encodeURIComponent(state.job.job_id)}/cancel`, { method: "POST" });
+          renderLoad();
+          pollLoadJob();
+        } catch (error) { showError(error); }
+      });
+    });
+  }
+  const workTabs = document.querySelector(".work-tabs");
+  workTabs.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-work-tab]");
+    if (button) setWorkTab(button.dataset.workTab);
+  });
+  workTabs.addEventListener("keydown", (event) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const next = WORK_TABS[(WORK_TABS.indexOf(state.workTab) + step + WORK_TABS.length) % WORK_TABS.length];
+    setWorkTab(next);
+    document.getElementById(`work-tab-${next}`).focus();
+  });
+  document.getElementById("insert-dialect").addEventListener("change", (event) => {
+    state.insert.dialect = event.target.value;
+    closeTableSuggestions();
+    resetInsertPlan();
+    renderInsertPlan();
+    suggestInsertTable();
+    void ensureInsertTables();
+  });
+  const insertTable = document.getElementById("insert-table");
+  insertTable.addEventListener("input", () => {
+    if (state.insert.report || state.insert.error) {
+      resetInsertPlan();
+      renderInsertPlan();
+    } else {
+      renderInsertControls();
+    }
+    openTableSuggestions();
+  });
+  insertTable.addEventListener("focus", () => {
+    if (!state.insert.report) openTableSuggestions();
+  });
+  insertTable.addEventListener("blur", closeTableSuggestions);
+  insertTable.addEventListener("keydown", (event) => {
+    const suggest = state.insert.suggest;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!suggest.open) {
+        openTableSuggestions();
+        if (!suggest.open) return;
+      }
+      const count = suggest.items.length;
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      suggest.active = suggest.active < 0
+        ? (step > 0 ? 0 : count - 1)
+        : (suggest.active + step + count) % count;
+      renderTableSuggestions();
+    } else if (event.key === "Escape" && suggest.open) {
+      event.preventDefault();
+      closeTableSuggestions();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (suggest.open && suggest.active >= 0) {
+        chooseTableSuggestion(suggest.items[suggest.active]);
+      } else {
+        closeTableSuggestions();
+        document.getElementById("insert-check").click();
+      }
+    }
+  });
+  const tableList = document.getElementById("insert-table-list");
+  // Keep focus in the input so blur does not close the list before the click lands.
+  tableList.addEventListener("mousedown", (event) => event.preventDefault());
+  tableList.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-table]");
+    if (option) chooseTableSuggestion(option.dataset.table);
+  });
+  document.getElementById("insert-check").addEventListener("click", async (event) => {
+    const tableName = insertTable.value.trim();
+    if (!state.file || !tableName) return;
+    const fileId = state.file.file_id;
+    await withBusy(event.currentTarget, async () => {
+      resetInsertPlan();
+      renderInsertPlan();
+      try {
+        const report = await api(`/api/files/${encodeURIComponent(fileId)}/insert/check`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dialect: insertDialect(), table_name: tableName }),
+        });
+        if (state.file?.file_id !== fileId) return;
+        state.insert.report = report;
+        insertTable.value = report.table;
+      } catch (error) {
+        state.insert.error = error;
+      }
+      renderInsertPlan();
+    }, renderInsertControls);
+  });
+  document.getElementById("insert-columns-body").addEventListener("change", (event) => {
+    const source = event.target.dataset?.insertSource;
+    if (!source) return;
+    setInsertSelected(source, event.target.checked);
+    document.querySelector(`[data-insert-source="${CSS.escape(source)}"]`)?.focus();
+  });
+  document.getElementById("insert-columns-all").addEventListener("change", (event) => {
+    state.insert.selected = event.target.checked ? null : new Set();
+    renderInsertPlan();
+  });
+  document.getElementById("insert-start").addEventListener("click", async (event) => {
+    const report = state.insert.report;
+    if (!state.file || !report) return;
     await withBusy(event.currentTarget, async () => {
       try {
-        state.job = await api(`/api/jobs/${encodeURIComponent(state.job.job_id)}/cancel`, { method: "POST" });
+        state.insert.error = null;
+        state.job = await api(`/api/files/${encodeURIComponent(state.file.file_id)}/insert`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dialect: report.dialect, table_name: report.table, columns: insertColumnNames() }),
+        });
+        state.jobOrigin = "insert";
         renderLoad();
         pollLoadJob();
-      } catch (error) { showError(error); }
-    }, renderLoad);
+      } catch (error) {
+        state.insert.error = error;
+      }
+      renderInsertControls();
+    }, renderInsertControls);
   });
+  document.getElementById("ddl-columns-all").addEventListener("click", () => setAllColumnsSelected(true));
+  document.getElementById("ddl-columns-none").addEventListener("click", () => setAllColumnsSelected(false));
   document.getElementById("ddl-mode").addEventListener("change", updateDdlControls);
   document.getElementById("ddl-dialect").addEventListener("change", updateDdlControls);
+  setWorkTab(savedWorkTab(), false);
   try { state.status = await api("/api/status"); } catch (error) { showError(error); }
   populateLanguageOptions(state.status?.languages || []);
   const lang = savedLang();
   document.getElementById("lang").value = lang;
   await setLang(lang, false);
+  if (state.workTab === "insert") void ensureInsertTables();
 }
 
 init();

@@ -26,7 +26,7 @@ import pyarrow.parquet as pq
 from app import __version__
 from app.core.config import AppConfig, load_config
 from app.core.dialects import SUPPORTED_DIALECTS
-from app.core.db import close_quietly, connect, require_online, test_connection
+from app.core.db import TABLE_LIST_LIMIT, close_quietly, connect, list_tables, require_online, test_connection
 from app.core.errors import PBError, warning
 from app.core.files import FileRegistry, SelectedFile, StreamingUpload, list_allowed_directory
 from app.core.flatten import (
@@ -44,6 +44,7 @@ from app.core.typemap import container_kind, measure_string_lengths
 from app.core.ddl_mysql import generate_mysql_ddl
 from app.core.ddl_oracle import generate_oracle_ddl
 from app.core.ddl_postgres import generate_postgres_ddl
+from app.core.insert_target import inspect_insert_target
 from app.core.jobs import LoadJobManager
 from app.core.reserved import fetch_oracle_reserved_words
 from app.core.string_scans import StringScanManager
@@ -295,15 +296,26 @@ class DdlOptions(BaseModel):
     preserve_empty: bool = True
     parent_key: str | None = None
     json_check: bool = False
+    # Top-level source columns to include in DDL, CREATE, and INSERT; None keeps all.
+    columns: list[str] | None = None
     preview_offset: int = 0
     preview_limit: int = 25
 
 
 class LoadOptions(DdlOptions):
-    """Options for CREATE/INSERT operations and existing-table policies."""
+    """Options for CREATE+INSERT loads and their existing-table policy."""
 
     existing_policy: str = "fail"
     confirm_table_name: str | None = None
+
+
+class InsertOptions(BaseModel):
+    """Options for INSERT into one existing table; columns match by name."""
+
+    dialect: str = "oracle"
+    table_name: str
+    # Matched top-level source columns to insert; None inserts every matched column.
+    columns: list[str] | None = None
 
 
 @app.get("/api/status")
@@ -317,6 +329,18 @@ def test_db_connection(dialect: str, request: Request) -> dict:
     """Connect with the configured profile and return only the server version and public target details."""
     profile = get_db_profile(request, dialect)
     return {"connected": True, **test_connection(profile)}
+
+
+@app.get("/api/db/{dialect}/tables")
+def list_db_tables(dialect: str, request: Request) -> dict:
+    """List table names in the profile's current schema for INSERT target suggestions."""
+    profile = get_db_profile(request, dialect)
+    connection = connect(profile)
+    try:
+        names = list_tables(connection, profile, limit=TABLE_LIST_LIMIT + 1)
+    finally:
+        close_quietly(connection)
+    return {"tables": names[:TABLE_LIST_LIMIT], "truncated": len(names) > TABLE_LIST_LIMIT}
 
 
 @app.get("/", include_in_schema=False)
@@ -544,6 +568,7 @@ def _build_models(
         preserve_empty=options.preserve_empty,
         child_max_depth=(config or get_config(request)).load.child_max_depth,
         reserved_word_provider=reserved_provider,
+        columns=options.columns,
     )
     return models, source_rows, reserved_warnings, schema
 
@@ -683,6 +708,9 @@ def download_ddl(file_id: str, options: DdlOptions, request: Request) -> Respons
 @app.post("/api/files/{file_id}/load")
 def queue_load(file_id: str, options: LoadOptions, request: Request) -> dict:
     """Queue CREATE+INSERT for the selected file and planned table family."""
+    if options.existing_policy == "insert_only":
+        # INSERT into an existing table goes through /insert, which matches stored columns.
+        raise PBError("E_BAD_REQUEST", fields=["existing_policy"])
     profile = get_db_profile(request, options.dialect)
     selected = get_files(request).get(file_id)
     config = get_config(request)
@@ -724,6 +752,35 @@ def queue_load(file_id: str, options: LoadOptions, request: Request) -> dict:
         prepare=prepare_load,
     )
     return {**job, "warnings": reserved_warnings}
+
+
+@app.post("/api/files/{file_id}/insert/check")
+def check_insert_target(file_id: str, options: InsertOptions, request: Request) -> dict:
+    """Read an existing table and show how the file's columns match its columns."""
+    profile = get_db_profile(request, options.dialect)
+    selected = get_files(request).get(file_id)
+    _model, report, _rows = inspect_insert_target(selected.path, profile, options.table_name, options.columns)
+    return report
+
+
+@app.post("/api/files/{file_id}/insert")
+def queue_insert(file_id: str, options: InsertOptions, request: Request) -> dict:
+    """Queue INSERT into an existing table without DDL or a string-length scan."""
+    profile = get_db_profile(request, options.dialect)
+    selected = get_files(request).get(file_id)
+    model, report, source_rows = inspect_insert_target(selected.path, profile, options.table_name, options.columns)
+    if model is None:
+        raise PBError("E_INSERT_NO_MATCHING_COLUMNS")
+    job = get_jobs(request).submit(
+        path=selected.path,
+        tables=[model],
+        profile=profile,
+        source_rows=source_rows,
+        batch_size=get_config(request).load.batch_size,
+        existing_policy="insert_only",
+        confirm_table_name=None,
+    )
+    return {**job, "warnings": report["warnings"]}
 
 
 @app.get("/api/jobs/{job_id}")

@@ -47,7 +47,7 @@ def validate_load_request(
     confirm_table_name: str | None,
 ) -> None:
     """Check destructive confirmation before queueing."""
-    if existing_policy not in {"fail", "append", "truncate", "drop_create"}:
+    if existing_policy not in {"fail", "append", "truncate", "drop_create", "insert_only"}:
         raise PBError("E_BAD_REQUEST", fields=["existing_policy"])
     if not tables:
         raise PBError("E_BAD_REQUEST", fields=["tables"])
@@ -119,7 +119,11 @@ def _preflight(
         existing = [name for name, present in exists.items() if present]
         if existing:
             raise PBError("E_TABLE_EXISTS", table=existing[0], tables=existing)
-    if existing_policy == "append" and _has_generated_parent_key(tables):
+    if existing_policy == "insert_only":
+        missing_tables = [name for name, present in exists.items() if not present]
+        if missing_tables:
+            raise PBError("E_INSERT_TABLE_MISSING", table=missing_tables[0])
+    if existing_policy in {"append", "insert_only"} and _has_generated_parent_key(tables):
         # Generated keys restart at 0 for every file, so appending to tables that
         # already hold rows would give different parents the same key.
         for table in tables:
@@ -147,6 +151,20 @@ def _preflight(
                     missing=sorted(expected - actual_normalized),
                     extra=sorted(actual_normalized - expected),
                 )
+    if existing_policy == "insert_only":
+        # INSERT names its columns, so the table may have more columns than the plan;
+        # those must accept NULL or have defaults, which the database enforces.
+        for table in tables:
+            actual = table_columns(
+                connection,
+                profile,
+                table.name,
+                quoted=table.identifier_policy == "quoted",
+            )
+            expected = _normalized_column_names({column.name for column in table.columns}, table)
+            missing = expected - _normalized_column_names(actual, table)
+            if missing:
+                raise PBError("E_INSERT_COLUMNS_MISSING", table=table.name, missing=sorted(missing))
     return exists
 
 
@@ -158,6 +176,8 @@ def _prepare_tables(
     cancel_event: threading.Event,
 ) -> bool:
     exists = _preflight(connection, profile, tables, existing_policy)
+    if existing_policy == "insert_only":
+        return False
     quoted = tables[0].identifier_policy == "quoted"
     changed = False
     if existing_policy == "truncate":
@@ -315,8 +335,12 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
     """Read plain tables in PyArrow batches and apply JSON transforms to each batch."""
     if table.mode == "none":
         batch_name = "__parqbridge_load_batch"
-        # Batches hold every top-level column in file order, matching the plan's positional aliases.
-        query = build_select_sql(table, dialect=dialect, source=f'"{batch_name}"')
+        # Read only the selected columns; Parquet stores each column separately, so the
+        # others are never decoded. Batches keep file order, matching the plan's read aliases.
+        read_columns = list(table.select_plan.read_columns) if table.select_plan else []
+        query = build_select_sql(
+            table, dialect=dialect, source=f'"{batch_name}"', projected=bool(read_columns),
+        )
 
         def transform_batch(batch: Any):
             connection = connect_utc()
@@ -363,6 +387,7 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
                     batches = parquet_file.iter_batches(
                         batch_size=batch_size,
                         row_groups=[row_group_index],
+                        columns=read_columns or None,
                         use_threads=False,
                     )
                     for batch in batches:
@@ -594,6 +619,7 @@ class LoadJobManager:
             "stage": "queued",
             "measurement_progress_percent": 0 if prepare is not None else None,
             "dialect": profile.kind,
+            "existing_policy": existing_policy,
             "target_tables": [table.name for table in tables],
             "progress": [{"table": table.name, "rows_done": 0, "rows_expected": None} for table in tables],
             "result": None,
@@ -637,6 +663,7 @@ class LoadJobManager:
             "stage": job["stage"],
             "measurement_progress_percent": job["measurement_progress_percent"],
             "dialect": job["dialect"],
+            "existing_policy": job["existing_policy"],
             "target_tables": list(job["target_tables"]),
             "progress": [dict(item) for item in job["progress"]],
             "elapsed_seconds": round(max(0.0, now - started), 3),

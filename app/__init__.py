@@ -1,3 +1,3 @@
 """ParqBridge: A local web tool for inspecting Parquet and generating DDL or loading data."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

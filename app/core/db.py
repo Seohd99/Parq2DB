@@ -279,3 +279,168 @@ def test_connection(profile: DbProfile) -> dict[str, Any]:
         raise PBError("E_DB_OPERATION_FAILED", driver_code=driver_code(profile.kind, exc)) from None
     finally:
         close_quietly(connection)
+
+
+TABLE_LIST_LIMIT = 1000
+
+
+def list_tables(connection: Any, profile: DbProfile, *, limit: int = TABLE_LIST_LIMIT) -> list[str]:
+    """Return up to ``limit`` table names in the current Oracle schema, MySQL database, or PostgreSQL schema."""
+    cursor = connection.cursor()
+    try:
+        if profile.kind == "oracle":
+            cursor.execute(
+                "SELECT TABLE_NAME FROM USER_TABLES WHERE DROPPED = 'NO' "
+                "ORDER BY TABLE_NAME FETCH FIRST :limit ROWS ONLY",
+                {"limit": limit},
+            )
+        elif profile.kind == "mysql":
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' "
+                "ORDER BY table_name LIMIT %s",
+                (limit,),
+            )
+        else:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = COALESCE(%s, current_schema()) AND table_type = 'BASE TABLE' "
+                "ORDER BY table_name LIMIT %s",
+                (profile.schema, limit),
+            )
+        return [str(row[0]) for row in cursor.fetchall()]
+    except Exception as exc:
+        raise PBError("E_DB_OPERATION_FAILED", driver_code=driver_code(profile.kind, exc)) from None
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+
+
+def find_table(connection: Any, profile: DbProfile, table_name: str) -> str:
+    """Resolve a user-typed table name to its stored name, preferring an exact match.
+
+    Matching ignores case, because Oracle stores unquoted names in uppercase and
+    PostgreSQL in lowercase, so users can type either form.
+    """
+    cursor = connection.cursor()
+    try:
+        if profile.kind == "oracle":
+            cursor.execute(
+                "SELECT TABLE_NAME FROM USER_TABLES WHERE UPPER(TABLE_NAME) = UPPER(:name)",
+                {"name": table_name},
+            )
+        elif profile.kind == "mysql":
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(%s)",
+                (table_name,),
+            )
+        else:
+            cursor.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = COALESCE(%s, current_schema()) AND LOWER(table_name) = LOWER(%s)",
+                (profile.schema, table_name),
+            )
+        names = sorted({str(row[0]) for row in cursor.fetchall()})
+    except Exception as exc:
+        raise PBError("E_DB_OPERATION_FAILED", driver_code=driver_code(profile.kind, exc)) from None
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass
+    if table_name in names:
+        return table_name
+    if len(names) == 1:
+        return names[0]
+    if not names:
+        raise PBError("E_INSERT_TABLE_MISSING", table=table_name)
+    raise PBError("E_INSERT_TABLE_AMBIGUOUS", table=table_name, tables=names)
+
+
+def _oracle_type(data_type: str, char_length: Any, char_used: Any, precision: Any, scale: Any) -> str:
+    if data_type in {"VARCHAR2", "NVARCHAR2", "CHAR", "NCHAR"} and char_length:
+        unit = " CHAR" if char_used == "C" and data_type in {"VARCHAR2", "CHAR"} else ""
+        return f"{data_type}({int(char_length)}{unit})"
+    if data_type == "NUMBER" and precision is not None:
+        return f"NUMBER({int(precision)},{int(scale or 0)})" if scale else f"NUMBER({int(precision)})"
+    return data_type
+
+
+def describe_columns(connection: Any, profile: DbProfile, table_name: str) -> list[dict[str, Any]]:
+    """Return a stored table's columns in table order.
+
+    Each item has ``name``, ``data_type``, ``nullable``, ``has_default`` (a default or an
+    identity/auto-increment value), and ``generated`` (a computed column that INSERT
+    cannot name).
+    """
+    cursor = connection.cursor()
+    try:
+        if profile.kind == "oracle":
+            # DEFAULT_LENGTH avoids reading the LONG DATA_DEFAULT column.
+            cursor.execute(
+                "SELECT COLUMN_NAME, DATA_TYPE, CHAR_LENGTH, CHAR_USED, DATA_PRECISION, DATA_SCALE, "
+                "NULLABLE, DEFAULT_LENGTH, IDENTITY_COLUMN, VIRTUAL_COLUMN "
+                "FROM USER_TAB_COLS WHERE TABLE_NAME = :name AND HIDDEN_COLUMN = 'NO' "
+                "ORDER BY COLUMN_ID",
+                {"name": table_name},
+            )
+            return [
+                {
+                    "name": str(name),
+                    "data_type": _oracle_type(str(data_type), char_length, char_used, precision, scale),
+                    "nullable": nullable == "Y",
+                    "has_default": default_length is not None or identity == "YES",
+                    "generated": virtual == "YES",
+                }
+                for name, data_type, char_length, char_used, precision, scale, nullable,
+                default_length, identity, virtual in cursor.fetchall()
+            ]
+        if profile.kind == "mysql":
+            cursor.execute(
+                "SELECT column_name, column_type, is_nullable, column_default, extra "
+                "FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() AND table_name = %s ORDER BY ordinal_position",
+                (table_name,),
+            )
+            columns = []
+            for name, column_type, nullable, default, extra in cursor.fetchall():
+                extra_text = (extra.decode() if isinstance(extra, bytes) else str(extra or "")).lower()
+                type_text = column_type.decode() if isinstance(column_type, bytes) else str(column_type)
+                columns.append({
+                    "name": str(name),
+                    "data_type": type_text,
+                    "nullable": nullable == "YES",
+                    "has_default": default is not None or "auto_increment" in extra_text,
+                    "generated": "virtual generated" in extra_text or "stored generated" in extra_text,
+                })
+            return columns
+        cursor.execute(
+            "SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull, "
+            "a.atthasdef OR a.attidentity <> '', a.attgenerated <> '' "
+            "FROM pg_catalog.pg_attribute a "
+            "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid "
+            "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = COALESCE(%s, current_schema()) AND c.relname = %s "
+            "AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum",
+            (profile.schema, table_name),
+        )
+        return [
+            {
+                "name": str(name),
+                "data_type": str(data_type),
+                "nullable": bool(nullable),
+                "has_default": bool(has_default),
+                "generated": bool(generated),
+            }
+            for name, data_type, nullable, has_default, generated in cursor.fetchall()
+        ]
+    except Exception as exc:
+        raise PBError("E_DB_OPERATION_FAILED", driver_code=driver_code(profile.kind, exc)) from None
+    finally:
+        try:
+            cursor.close()
+        except Exception:
+            pass

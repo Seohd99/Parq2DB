@@ -260,3 +260,50 @@ def test_mysql_quoted_columns_cannot_differ_only_by_case():
     for dialect in ("postgres", "oracle"):
         tables = plan_tables(schema, table_name="PB_TEST_CASE", dialect=dialect, column_policy="quoted")
         assert [column.name for column in tables[0].columns] == ["A", "a"]
+
+
+def _selection_file(tmp_path: Path) -> Path:
+    import pyarrow as pa
+
+    path = tmp_path / "selection.parquet"
+    pq.write_table(pa.table({
+        "id": [1, 2],
+        "name": ["a", "b"],
+        "score": [10, 20],
+        "tags": pa.array([["x"], ["y", "z"]], type=pa.list_(pa.string())),
+    }), path)
+    return path
+
+
+def test_column_selection_limits_ddl_columns_and_preview(tmp_path: Path):
+    path = _selection_file(tmp_path)
+    models = plan(path, mode="none", dialect="postgres", columns=["score", "id"])
+    root = models[0]
+    # Selected columns keep file order regardless of request order.
+    assert [column.name for column in root.columns] == ["ID", "SCORE"]
+    assert root.select_plan.read_columns == ("id", "score")
+    assert root.select_plan.read_aliases == ("__pb_src_0", "__pb_src_2")
+    rows = query_table_preview(path, root)["rows"]
+    assert rows == [{"ID": 1, "SCORE": 10}, {"ID": 2, "SCORE": 20}]
+
+
+def test_column_selection_without_a_list_column_drops_its_child_table(tmp_path: Path):
+    path = _selection_file(tmp_path)
+    assert [table.name for table in plan(path, mode="child", dialect="postgres")] == ["PB_TEST_DATA", "PB_TEST_DATA_TAGS"]
+    models = plan(path, mode="child", dialect="postgres", columns=["id", "name"])
+    assert [table.name for table in models] == ["PB_TEST_DATA"]
+    assert [column.name for column in models[0].columns] == ["_PB_ROW_ID", "ID", "NAME"]
+
+
+@pytest.mark.parametrize("options, code, params", [
+    ({"columns": []}, "E_COLUMNS_EMPTY", {}),
+    ({"columns": ["id", "missing"]}, "E_COLUMN_NOT_FOUND", {"column": "missing"}),
+    ({"mode": "child", "parent_key": "id", "columns": ["name", "tags"]}, "E_COLUMN_NOT_SELECTED", {"column": "id"}),
+    ({"mode": "explode", "explode_column": "tags", "columns": ["id"]}, "E_COLUMN_NOT_SELECTED", {"column": "tags"}),
+])
+def test_invalid_column_selection_is_rejected(tmp_path: Path, options, code, params):
+    path = _selection_file(tmp_path)
+    with pytest.raises(PBError) as error:
+        plan(path, dialect="postgres", **{"mode": "none", **options})
+    assert error.value.code == code
+    assert error.value.params == params

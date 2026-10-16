@@ -15,6 +15,10 @@
     </div>
     <div class="spacer"></div>
     <div class="topbar-controls">
+      <a class="github-star" href="https://github.com/Seohd99/ParqBridge" target="_blank" rel="noopener noreferrer">
+        <span class="github-star-mark" aria-hidden="true">★</span>
+        <span class="github-star-label" data-i18n="ui.github_star">Star on GitHub</span>
+      </a>
       <label for="lang" data-i18n="ui.language">Language</label>
       <select id="lang"></select>
       <button id="theme-toggle" class="button-ghost theme-toggle" type="button" aria-pressed="false" aria-label="Toggle color theme">
@@ -85,6 +89,22 @@
     </section>
 
     <section id="inspection" hidden>
+      <nav class="work-tabs" role="tablist" aria-label="Tasks" data-i18n-aria-label="work.tabs_label">
+        <button id="work-tab-explore" class="work-tab active" type="button" role="tab" aria-selected="true" aria-controls="work-explore" data-work-tab="explore">
+          <span class="work-tab-title" data-i18n="work.explore">Explore the file</span>
+          <span class="work-tab-hint" data-i18n="work.explore_hint">Schema, statistics, and rows</span>
+        </button>
+        <button id="work-tab-insert" class="work-tab" type="button" role="tab" aria-selected="false" aria-controls="work-insert" data-work-tab="insert" tabindex="-1">
+          <span class="work-tab-title" data-i18n="work.insert">INSERT into an existing table</span>
+          <span class="work-tab-hint" data-i18n="work.insert_hint">Match columns by name and add rows</span>
+        </button>
+        <button id="work-tab-create" class="work-tab" type="button" role="tab" aria-selected="false" aria-controls="work-create" data-work-tab="create" tabindex="-1">
+          <span class="work-tab-title" data-i18n="work.create">Create a new table</span>
+          <span class="work-tab-hint" data-i18n="work.create_hint">Build DDL, then CREATE + INSERT</span>
+        </button>
+      </nav>
+
+      <div id="work-explore" class="work-panel" role="tabpanel" aria-labelledby="work-tab-explore">
       <section class="card">
         <div class="section-heading">
           <h2 data-i18n="inspect.overview">File overview</h2>
@@ -133,9 +153,58 @@
           </select>
         </div>
       </section>
+      </div>
+
+      <div id="work-insert" class="work-panel" role="tabpanel" aria-labelledby="work-tab-insert" hidden>
+      <section class="card" id="insert-card">
+        <h2 data-i18n="insert.title">INSERT into an existing table</h2>
+        <p class="muted card-intro" data-i18n="insert.intro">Pick a table that already exists. File columns are matched to its columns by name, and only rows are added. No table is created or changed, and no DDL is needed.</p>
+        <div class="insert-target">
+          <label><span data-i18n="ddl.dialect">Target database</span>
+            <select id="insert-dialect"></select>
+          </label>
+          <label class="insert-table-field"><span data-i18n="insert.table">Table</span>
+            <span class="combo">
+              <input id="insert-table" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="insert-table-list" autocomplete="off" spellcheck="false" maxlength="128">
+              <ul id="insert-table-list" class="combo-list" role="listbox" hidden></ul>
+            </span>
+          </label>
+          <button id="insert-check" class="button-primary" type="button" data-i18n="insert.check" disabled>Check table</button>
+        </div>
+        <p id="insert-offline-reason" class="muted"></p>
+        <p id="insert-offline-help" class="offline-help muted" hidden></p>
+        <div id="insert-feedback" class="feedback" role="status" aria-live="polite"></div>
+        <div id="insert-plan" class="insert-plan" hidden>
+          <div class="section-heading">
+            <h3 id="insert-plan-title"></h3>
+            <span id="insert-plan-summary" class="muted"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="insert-columns">
+              <thead><tr>
+                <th class="insert-check-col"><input id="insert-columns-all" type="checkbox" aria-label="Insert all matched columns" data-i18n-aria-label="insert.columns_all"></th>
+                <th data-i18n="insert.table_column">Table column</th>
+                <th data-i18n="insert.column_type">Type</th>
+                <th data-i18n="insert.file_column">File column</th>
+                <th data-i18n="insert.value">Inserted value</th>
+              </tr></thead>
+              <tbody id="insert-columns-body"></tbody>
+            </table>
+          </div>
+          <ul id="insert-warnings" class="warnings"></ul>
+          <div class="insert-actions">
+            <button id="insert-start" class="button-primary" type="button" disabled>INSERT</button>
+          </div>
+        </div>
+        <div id="insert-job"></div>
+      </section>
+      </div>
+
+      <div id="work-create" class="work-panel" role="tabpanel" aria-labelledby="work-tab-create" hidden>
 
       <section class="card" id="ddl-card">
         <h2 data-i18n="ddl.title">Create DDL</h2>
+        <p class="muted card-intro" data-i18n="ddl.intro">Choose how the new table is shaped, review the DDL, then copy it or create the table and load the rows.</p>
         <div class="ddl-options">
           <label><span data-i18n="ddl.dialect">Target database</span>
             <select id="ddl-dialect"><option value="oracle">Oracle 12.2+ (19c design target)</option><option value="mysql">MySQL 8+</option><option value="postgres">PostgreSQL 16+</option></select>
@@ -172,6 +241,17 @@
           <label class="check-option"><input id="ddl-preserve-empty" type="checkbox" checked><span data-i18n="ddl.preserve_empty">Keep empty/null list rows</span></label>
           <label class="check-option"><input id="ddl-json-check" type="checkbox"><span data-i18n="ddl.json_check">Add Oracle IS JSON checks</span></label>
         </div>
+        <details id="ddl-columns" class="result-details column-picker">
+          <summary id="ddl-columns-summary">Columns</summary>
+          <div class="column-picker-body">
+            <p class="muted" data-i18n="ddl.columns_hint">Only checked columns are used for DDL, CREATE, and INSERT, and only those columns are read from the file.</p>
+            <div class="button-row">
+              <button id="ddl-columns-all" type="button" data-i18n="ddl.columns_all">Select all</button>
+              <button id="ddl-columns-none" type="button" data-i18n="ddl.columns_none">Clear all</button>
+            </div>
+            <div id="ddl-column-list" class="column-list"></div>
+          </div>
+        </details>
         <button id="ddl-generate" class="button-primary" type="button" data-i18n="ddl.generate">Build DDL plan and preview</button>
         <div id="ddl-result-tools" class="ddl-result-tools" hidden>
           <h3 data-i18n="ddl.sql">SQL</h3>
@@ -192,9 +272,10 @@
           <div id="flatten-preview-content" class="flatten-previews"></div>
         </details>
         <section class="load-panel" aria-labelledby="load-title">
-          <h3 id="load-title" data-i18n="load.title">CREATE and INSERT</h3>
+          <h3 id="load-title" data-i18n="load.title">Create the table and load rows</h3>
+          <p class="muted" data-i18n="load.create_hint">Runs the DDL above in the database, then inserts every row. To add rows to a table that already exists, use the INSERT tab.</p>
           <div class="load-controls">
-            <label><span data-i18n="load.existing_policy">Existing table policy</span>
+            <label id="load-policy-label"><span data-i18n="load.existing_policy">Existing table policy</span>
               <select id="load-policy">
                 <option value="fail" data-i18n="load.policy_fail">Fail (default)</option>
                 <option value="append" data-i18n="load.policy_append">Append rows</option>
@@ -203,25 +284,16 @@
               </select>
             </label>
             <div class="button-row">
-            <button id="load-start" class="button-primary" type="button" data-i18n="load.start" disabled>CREATE + INSERT</button>
-              <button id="load-cancel" type="button" class="danger-button" data-i18n="load.cancel" hidden>Cancel</button>
+              <button id="load-start" class="button-primary" type="button" data-i18n="load.start" disabled>CREATE + INSERT</button>
             </div>
           </div>
           <p id="load-offline-reason" class="muted"></p>
           <p id="load-offline-help" class="offline-help muted" hidden></p>
           <p id="load-measurement-wait" class="muted" hidden></p>
-          <div id="load-job" class="load-job" hidden>
-            <div class="section-heading">
-              <strong id="load-job-status"></strong>
-              <span id="load-job-elapsed" class="muted"></span>
-            </div>
-            <p id="load-job-stage" class="muted"></p>
-            <div id="load-progress-list" class="load-progress-list"></div>
-            <ul id="load-job-error" class="warnings"></ul>
-            <div id="load-results" class="load-results"></div>
-          </div>
+          <div id="create-job"></div>
         </section>
       </section>
+      </div>
     </section>
   </main>
 

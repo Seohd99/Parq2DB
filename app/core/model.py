@@ -80,6 +80,10 @@ class SelectPlan:
     preserve_empty: bool = True
     # Positional aliases for the file's top-level columns; expressions reference these.
     source_columns: tuple[str, ...] = ()
+    # Selected top-level source columns in file order and their positional aliases.
+    # A source that holds only these columns, such as a projected Arrow batch, uses them.
+    read_columns: tuple[str, ...] = ()
+    read_aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

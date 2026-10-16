@@ -496,3 +496,24 @@ def test_selected_file_supplies_valid_default_table_names(tmp_path, source, file
             })
             assert ddl.status_code == 200, ddl.json()
             assert ddl.json()["table_name"] == name
+
+
+def test_ddl_api_applies_column_selection(tmp_path):
+    path = tmp_path / "pick.parquet"
+    pq.write_table(pa.table({"id": [1], "name": ["a"], "secret": ["x"]}), path)
+    cfg = AppConfig(server=ServerConfig(allowed_roots=(tmp_path,), upload_dir=tmp_path / "uploads"))
+    with client_with(cfg) as client:
+        file_id = client.post("/api/files/local", json={"path": str(path)}).json()["file"]["file_id"]
+        response = client.post(f"/api/files/{file_id}/ddl", json={
+            "dialect": "postgres", "table_name": "PB_TEST_PICK", "columns": ["id", "name"],
+        })
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert [column["name"] for column in body["tables"][0]["columns"]] == ["ID", "NAME"]
+        assert "SECRET" not in body["ddl"]
+        assert body["previews"][0]["rows"] == [{"ID": 1, "NAME": "a"}]
+        invalid = client.post(f"/api/files/{file_id}/ddl", json={
+            "dialect": "postgres", "table_name": "PB_TEST_PICK", "columns": [],
+        })
+        assert invalid.status_code == 400
+        assert invalid.json()["error"]["code"] == "E_COLUMNS_EMPTY"
