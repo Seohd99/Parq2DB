@@ -28,7 +28,7 @@ Recommended (uv; `.python-version` selects Python 3.14, `uv.lock` pins every pac
 
 ```bash
 uv run --no-dev parq2db   # start the app
-uv run pytest -q -rs         # tests need the dev dependency group
+uv run pytest -q -rs      # tests need the dev dependency group
 ```
 
 Alternative with pip, PowerShell:
