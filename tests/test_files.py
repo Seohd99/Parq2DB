@@ -8,6 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import load_config
+from app.core.errors import PBError
+from app.core.files import resolve_allowed_path
 from app.main import app
 
 
@@ -24,6 +26,101 @@ def configured(tmp_path: Path, roots: tuple[Path, ...] = (), upload_max_mb: int 
 
 def error_code(response) -> str:
     return response.json()["error"]["code"]
+
+
+def forbid_network_resolve(monkeypatch, path_type):
+    original_resolve = path_type.resolve
+
+    def guarded_resolve(path, *args, **kwargs):
+        normalized = str(path).replace("\\", "/")
+        if normalized.startswith("//") or normalized.startswith("/??/"):
+            pytest.fail(f"network or device path was resolved: {path}")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "resolve", guarded_resolve)
+
+
+NETWORK_PATHS = (
+    r"\\attacker\share\x",
+    "//attacker/share/x",
+    r"\\?\C:\secret",
+    "//?/C:/secret",
+    r"\\.\C:\secret",
+    "//./C:/secret",
+    r"\??\C:\secret",
+    "/??/C:/secret",
+)
+
+
+@pytest.mark.parametrize("raw_path", NETWORK_PATHS)
+def test_resolve_allowed_path_rejects_unc_and_device_paths_before_resolving(tmp_path, monkeypatch, raw_path):
+    root = tmp_path / "allowed"
+    root.mkdir()
+    forbid_network_resolve(monkeypatch, type(tmp_path))
+
+    with pytest.raises(PBError) as exc_info:
+        resolve_allowed_path(raw_path, (root,))
+
+    assert exc_info.value.code == "E_PATH_NOT_ALLOWED"
+
+
+@pytest.mark.parametrize("raw_path", NETWORK_PATHS)
+def test_browse_rejects_unc_and_device_paths_before_resolving(tmp_path, monkeypatch, raw_path):
+    root = tmp_path / "allowed"
+    root.mkdir()
+    app.state.config = configured(tmp_path, (root,))
+    forbid_network_resolve(monkeypatch, type(tmp_path))
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        response = client.get("/api/files/browse", params={"path": raw_path})
+
+    assert response.status_code == 403
+    assert error_code(response) == "E_PATH_NOT_ALLOWED"
+
+
+def test_expanduser_network_home_is_rejected_before_resolving(tmp_path, monkeypatch):
+    root = tmp_path / "allowed"
+    root.mkdir()
+    path_type = type(tmp_path)
+    original_expanduser = path_type.expanduser
+
+    def expand_to_network_home(path):
+        if str(path).replace("\\", "/") == "~/hidden":
+            return path_type(r"\\attacker\share\home\hidden")
+        return original_expanduser(path)
+
+    monkeypatch.setattr(path_type, "expanduser", expand_to_network_home)
+    forbid_network_resolve(monkeypatch, path_type)
+
+    with pytest.raises(PBError) as exc_info:
+        resolve_allowed_path("~/hidden", (root,))
+
+    assert exc_info.value.code == "E_PATH_NOT_ALLOWED"
+
+
+def test_unc_path_is_allowed_when_textually_under_configured_unc_root(tmp_path, monkeypatch):
+    network_root = r"\\server\share\allowed"
+    network_child = "//server/share/allowed/child"
+    resolved_root = tmp_path / "resolved_root"
+    resolved_root.mkdir()
+    resolved_child = resolved_root / "child"
+    resolved_child.mkdir()
+    path_type = type(tmp_path)
+    original_resolve = path_type.resolve
+
+    def resolve_configured_network_path(path, *args, **kwargs):
+        normalized = str(path).replace("/", "\\").lower()
+        if normalized == network_root.lower():
+            return resolved_root
+        if normalized == network_child.replace("/", "\\").lower():
+            return resolved_child
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "resolve", resolve_configured_network_path)
+
+    resolved = resolve_allowed_path(network_child, (path_type(network_root),))
+
+    assert resolved == resolved_child
 
 
 def test_upload_stream_saves_safe_name_and_delete_stays_in_upload_dir(tmp_path, parquet_path):

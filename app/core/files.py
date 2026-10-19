@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ntpath
 import os
 import uuid
 from dataclasses import dataclass
@@ -132,13 +133,41 @@ class FileRegistry:
 def resolve_allowed_path(raw_path: str | os.PathLike[str], allowed_roots: tuple[Path, ...]) -> Path:
     """Resolve the path strictly and verify that it is under an allowed root."""
     try:
-        path = Path(raw_path).expanduser().resolve(strict=True)
+        _reject_unconfigured_network_path(raw_path, allowed_roots)
+        expanded_path = Path(raw_path).expanduser()
+        _reject_unconfigured_network_path(expanded_path, allowed_roots)
+        path = expanded_path.resolve(strict=True)
         roots = tuple(root.resolve(strict=True) for root in allowed_roots)
     except (OSError, RuntimeError, ValueError, TypeError) as exc:
         raise PBError("E_PATH_NOT_ALLOWED") from exc
     if not any(path.is_relative_to(root) for root in roots):
         raise PBError("E_PATH_NOT_ALLOWED")
     return path
+
+
+def _reject_unconfigured_network_path(raw_path: str | os.PathLike[str], allowed_roots: tuple[Path, ...]) -> None:
+    """Reject UNC and device paths before resolving them unless a configured root allows them."""
+    raw_text = os.fspath(raw_path)
+    if not isinstance(raw_text, str) or not _is_unc_or_device_path(raw_text):
+        return
+    path_text = ntpath.normcase(ntpath.normpath(raw_text.replace("/", "\\")))
+    for root in allowed_roots:
+        root_text = os.fspath(root)
+        if not isinstance(root_text, str) or not _is_unc_or_device_path(root_text):
+            continue
+        root_text = ntpath.normcase(ntpath.normpath(root_text.replace("/", "\\")))
+        try:
+            if ntpath.commonpath((path_text, root_text)) == root_text:
+                return
+        except ValueError:
+            continue
+    raise PBError("E_PATH_NOT_ALLOWED")
+
+
+def _is_unc_or_device_path(raw_path: str) -> bool:
+    """Recognize Windows network and device namespaces with either separator."""
+    normalized = raw_path.replace("\\", "/")
+    return normalized.startswith("//") or normalized.startswith("/??/")
 
 
 def list_allowed_directory(raw_path: str, allowed_roots: tuple[Path, ...]) -> dict:
