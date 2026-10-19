@@ -326,9 +326,9 @@ def test_load_endpoint_sends_insert_only_to_the_insert_endpoint(tmp_path, flat_p
 
 
 def test_table_list_endpoint_and_offline_profiles(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.main.connect", lambda _profile: object())
-    monkeypatch.setattr("app.main.close_quietly", lambda _connection: None)
-    monkeypatch.setattr("app.main.list_tables", lambda _c, _p, limit: [f"T{index}" for index in range(limit)])
+    monkeypatch.setattr("app.api.system.connect", lambda _profile: object())
+    monkeypatch.setattr("app.api.system.close_quietly", lambda _connection: None)
+    monkeypatch.setattr("app.api.system.list_tables", lambda _c, _p, limit: [f"T{index}" for index in range(limit)])
     app.state.config = online_config(tmp_path)
     with TestClient(app, base_url="http://127.0.0.1") as c:
         body = c.get("/api/db/mysql/tables").json()

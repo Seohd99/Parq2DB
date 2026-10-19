@@ -461,7 +461,7 @@ def test_destructive_oracle_confirmation_error_uses_normalized_plan_table_before
     from types import SimpleNamespace
 
     monkeypatch.setattr(
-        "app.main._build_models",
+        "app.api.planning.build_models",
         lambda _selected, _options, _context: ([SimpleNamespace(name="PB_TEST_NORMALIZED", warnings=())], 3, [], None),
     )
     monkeypatch.setattr("app.core.jobs.connect", lambda _profile: pytest.fail("load connected before validation"))

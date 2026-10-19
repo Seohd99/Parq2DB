@@ -11,7 +11,8 @@ from app.core.errors import PBError
 from app.core.languages import supported_languages
 from app.core.model import StringLength, StringLengthMeasurements
 from app.core.string_scans import StringScanManager
-from app.main import DdlOptions, LoadOptions, app
+from app.api.schemas import DdlOptions, LoadOptions
+from app.main import app
 
 
 def client_with(cfg) -> TestClient:

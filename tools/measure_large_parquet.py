@@ -224,7 +224,7 @@ def measure_api(path: Path, total_rows: int, page_size: int) -> dict[str, Any]:
             "mysql": DbProfile(kind="mysql", offline_reason="E_DB_NOT_CONFIGURED"),
         },
     )
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         selected = client.post("/api/files/local", json={"path": str(path)})
         selected.raise_for_status()
         file_id = selected.json()["file"]["file_id"]

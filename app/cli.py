@@ -228,7 +228,7 @@ def _preview(args: argparse.Namespace) -> int:
 
 
 def _ddl_options(args: argparse.Namespace):
-    from app.main import DdlOptions
+    from app.api.schemas import DdlOptions
 
     return DdlOptions(
         dialect=args.dialect,
@@ -244,11 +244,11 @@ def _ddl_options(args: argparse.Namespace):
 
 
 def _ddl(args: argparse.Namespace) -> int:
-    from app.main import _build_ddl_result
+    from app.api.planning import build_ddl_result
 
     config = _load_config()
     selected = _selected_file(args.parquet, config)
-    result = _build_ddl_result(
+    result = build_ddl_result(
         selected,
         _ddl_options(args),
         _context(config),
@@ -357,7 +357,7 @@ def _print_load_result(snapshot: dict[str, Any], lang: str) -> None:
 
 def _load(args: argparse.Namespace) -> int:
     from app.core.jobs import LoadJobManager, validate_load_request
-    from app.main import _build_models, _warning_for_dialect
+    from app.api.planning import build_models, warning_for_dialect
 
     config = _load_config()
     selected = _selected_file(args.parquet, config)
@@ -389,10 +389,10 @@ def _load(args: argparse.Namespace) -> int:
     else:
         existing_policy = args.if_exists
         options = _ddl_options(args)
-        models, source_rows, reserved_warnings, _schema = _build_models(selected, options, _context(config))
+        models, source_rows, reserved_warnings, _schema = build_models(selected, options, _context(config))
         warnings = list(reserved_warnings)
         for table in models:
-            warnings.extend(item for item in table.warnings if _warning_for_dialect(item, args.dialect))
+            warnings.extend(item for item in table.warnings if warning_for_dialect(item, args.dialect))
     validate_load_request(models, existing_policy, args.confirm_table)
     _print_warnings(_dedupe_warnings(warnings), args.lang)
 
