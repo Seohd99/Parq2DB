@@ -26,13 +26,22 @@ from app.core.db import (
     table_columns,
     table_exists,
 )
-from app.core.duckdb_utils import connect_utc, literal_path
+from app.core.duckdb_utils import (
+    connect_utc,
+    duckdb_compatible_batch,
+    has_wide_decimal,
+    literal_path,
+)
 from app.core.ddl_mysql import generate_mysql_ddl
 from app.core.ddl_oracle import generate_oracle_ddl
 from app.core.ddl_postgres import generate_postgres_ddl
 from app.core.dialects import quote_identifier
 from app.core.errors import PBError
-from app.core.flatten import build_expected_count_sql, build_select_sql
+from app.core.flatten import (
+    WIDE_DECIMAL_BATCH_SIZE,
+    build_expected_count_sql,
+    build_select_sql,
+)
 from app.core.model import ColumnModel, TableModel
 
 LoadProgress = Callable[[str, int, int | None], None]
@@ -209,6 +218,30 @@ def _expected_rows(path: Path, table: TableModel, source_rows: int) -> int:
         return source_rows
     connection = connect_utc()
     try:
+        with pq.ParquetFile(path) as parquet:
+            schema = parquet.schema_arrow
+            if any(has_wide_decimal(field.type) for field in schema):
+                batch_name = "__parqbridge_expected_batch"
+                plan = table.select_plan
+                read_columns = list(plan.read_columns) if plan else []
+                expected_sql = build_expected_count_sql(
+                    table, source=f'"{batch_name}"', projected=bool(read_columns),
+                )
+                if expected_sql is None:
+                    return source_rows
+                expected_rows = 0
+                for source_batch in parquet.iter_batches(
+                    batch_size=WIDE_DECIMAL_BATCH_SIZE,
+                    columns=read_columns or None,
+                    use_threads=False,
+                ):
+                    compatible_batch = duckdb_compatible_batch(source_batch)
+                    connection.register(batch_name, pa.Table.from_batches([compatible_batch]))
+                    try:
+                        expected_rows += int(connection.execute(expected_sql).fetchone()[0] or 0)
+                    finally:
+                        connection.unregister(batch_name)
+                return expected_rows
         row = connection.execute(sql, [literal_path(path)]).fetchone()
         return int(row[0] or 0)
     except Exception:
@@ -315,7 +348,7 @@ def _record_batch_rows(batch: Any, table: TableModel, dialect: str) -> list[tupl
 
 
 def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int):
-    """Read plain tables in PyArrow batches and apply JSON transforms to each batch."""
+    """Read Parquet rows in bounded batches and apply the table's select plan."""
     if table.mode == "none":
         batch_name = "__parqbridge_load_batch"
         # Read only the selected columns; Parquet stores each column separately, so the
@@ -329,7 +362,8 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
             connection = connect_utc()
             reader = None
             try:
-                connection.register(batch_name, pa.Table.from_batches([batch]))
+                compatible_batch = duckdb_compatible_batch(batch)
+                connection.register(batch_name, pa.Table.from_batches([compatible_batch]))
                 reader = connection.sql(query).to_arrow_reader(batch_size)
                 yield from reader
             finally:
@@ -398,6 +432,72 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
             raise
         except Exception:
             raise PBError("E_PARQUET_INVALID") from None
+        return
+
+    try:
+        with pq.ParquetFile(path) as metadata_file:
+            schema = metadata_file.schema_arrow
+            wide_decimal = any(has_wide_decimal(field.type) for field in schema)
+    except Exception:
+        raise PBError("E_PARQUET_INVALID") from None
+    if wide_decimal:
+        plan = table.select_plan
+        if plan is None:
+            raise ValueError(f"table {table.name} has no select plan")
+        batch_name = "__parqbridge_wide_decimal_load"
+        read_columns = list(plan.read_columns)
+        query = build_select_sql(
+            table, dialect=dialect, source=f'"{batch_name}"', projected=bool(read_columns),
+        )
+        row_id_expression = f'src."{plan.internal_row_id}"'
+        generated_id_name = next(
+            (item.name for item in plan.selections if item.expression == row_id_expression),
+            None,
+        )
+        connection = connect_utc()
+        input_row_offset = 0
+        try:
+            with pq.ParquetFile(path) as parquet:
+                for source_batch in parquet.iter_batches(
+                    batch_size=batch_size,
+                    columns=read_columns or None,
+                    use_threads=False,
+                ):
+                    compatible_batch = duckdb_compatible_batch(source_batch)
+                    connection.register(batch_name, pa.Table.from_batches([compatible_batch]))
+                    reader = None
+                    try:
+                        reader = connection.sql(query).to_arrow_reader(batch_size)
+                        for output_batch in reader:
+                            if generated_id_name:
+                                column_index = output_batch.schema.get_field_index(generated_id_name)
+                                if column_index >= 0:
+                                    generated_ids = output_batch.column(column_index).to_pylist()
+                                    generated_id_type = output_batch.schema.field(column_index).type
+                                    offset_ids = pa.array(
+                                        [
+                                            value + input_row_offset if value is not None else None
+                                            for value in generated_ids
+                                        ],
+                                        type=generated_id_type,
+                                    )
+                                    output_batch = output_batch.set_column(
+                                        column_index,
+                                        output_batch.schema.field(column_index),
+                                        offset_ids,
+                                    )
+                            yield output_batch
+                    finally:
+                        if reader is not None:
+                            reader.close()
+                        connection.unregister(batch_name)
+                    input_row_offset += source_batch.num_rows
+        except PBError:
+            raise
+        except Exception:
+            raise PBError("E_PARQUET_INVALID") from None
+        finally:
+            connection.close()
         return
 
     connection = connect_utc()

@@ -329,7 +329,7 @@ uv는 `parqbridge` 명령을 자동으로 제공합니다. pip로 만든 환경�
 | int64 | `NUMBER(19)` | `BIGINT` | `BIGINT` |
 | uint8/16/32/64 | `NUMBER(3/5/10/20)` | `TINYINT` / `SMALLINT` / `INT` / `BIGINT` `UNSIGNED` | `SMALLINT` / `INTEGER` / `BIGINT` / `NUMERIC(20)` |
 | float32 / float64 | `BINARY_FLOAT` / `BINARY_DOUBLE` | `FLOAT` / `DOUBLE` | `REAL` / `DOUBLE PRECISION` |
-| decimal(p,s) | `NUMBER(p,s)`; precision 38 초과는 경고 후 문자 타입 | `DECIMAL(p,s)`; precision 65 초과는 경고 후 문자 타입 | `NUMERIC(p,s)` |
+| decimal(p,s) | `NUMBER(p,s)`; precision 38 초과는 경고 후 문자 타입 | `DECIMAL(p,s)`; precision 65 초과 또는 scale 30 초과는 경고 후 문자 타입 | `NUMERIC(p,s)` |
 | bool | `NUMBER(1)` | `TINYINT(1)` | `BOOLEAN` |
 | string | `VARCHAR2(n CHAR)` 또는 `CLOB` | `VARCHAR(n)`, 길이에 따라 `TEXT` / `MEDIUMTEXT` / `LONGTEXT` | 표본 길이는 `VARCHAR(n)`, `max`/`lob`는 `TEXT` |
 | date | `DATE` | `DATE` | `DATE` |

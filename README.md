@@ -329,7 +329,7 @@ In `child` mode, you can use a selected top-level scalar column as the parent ke
 | int64 | `NUMBER(19)` | `BIGINT` | `BIGINT` |
 | uint8/16/32/64 | `NUMBER(3/5/10/20)` | `TINYINT` / `SMALLINT` / `INT` / `BIGINT` `UNSIGNED` | `SMALLINT` / `INTEGER` / `BIGINT` / `NUMERIC(20)` |
 | float32 / float64 | `BINARY_FLOAT` / `BINARY_DOUBLE` | `FLOAT` / `DOUBLE` | `REAL` / `DOUBLE PRECISION` |
-| decimal(p,s) | `NUMBER(p,s)`; precision above 38 warns and uses a character type | `DECIMAL(p,s)`; precision above 65 warns and uses a character type | `NUMERIC(p,s)` |
+| decimal(p,s) | `NUMBER(p,s)`; precision above 38 warns and uses a character type | `DECIMAL(p,s)`; precision above 65 or scale above 30 warns and uses a character type | `NUMERIC(p,s)` |
 | bool | `NUMBER(1)` | `TINYINT(1)` | `BOOLEAN` |
 | string | `VARCHAR2(n CHAR)` or `CLOB` | `VARCHAR(n)`, then `TEXT` / `MEDIUMTEXT` / `LONGTEXT` depending on length | `VARCHAR(n)` for sampled lengths; `TEXT` for `max`/`lob` |
 | date | `DATE` | `DATE` | `DATE` |

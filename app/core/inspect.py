@@ -15,10 +15,20 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from app.core.errors import PBError
-from app.core.duckdb_utils import alias_list, connect_utc, literal_path, quote_identifier, source_aliases, validate_source_schema
+from app.core.duckdb_utils import (
+    alias_list,
+    connect_utc,
+    duckdb_compatible_batch,
+    has_wide_decimal,
+    literal_path,
+    quote_identifier,
+    source_aliases,
+    validate_source_schema,
+)
 
 MAX_PAGE_SIZE = 200
 DEFAULT_PAGE_SIZE = 50
+PREVIEW_ARROW_BATCH_SIZE = 10_000
 
 
 def _container_kind(data_type: pa.DataType) -> str | None:
@@ -219,6 +229,8 @@ def preview_parquet(path: Path, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE)
         schema = parquet.schema_arrow
         total_rows = parquet.metadata.num_rows
     validate_source_schema(schema)
+    if any(has_wide_decimal(field.type) for field in schema):
+        return _preview_wide_decimals(path, schema, total_rows, offset, limit)
     json_columns: set[str] = set()
     projections: list[str] = []
     aliases = source_aliases(len(schema))
@@ -260,6 +272,81 @@ def preview_parquet(path: Path, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE)
         rows.append(item)
     return {
         "columns": columns,
+        "rows": rows,
+        "offset": offset,
+        "page_size": limit,
+        "total_rows": total_rows,
+        "has_next": offset + len(rows) < total_rows,
+    }
+
+
+def _preview_wide_decimals(
+    path: Path,
+    schema: pa.Schema,
+    total_rows: int,
+    offset: int,
+    limit: int,
+) -> dict[str, Any]:
+    """Preview wide-decimal files through bounded, decimal256-safe Arrow batches."""
+    json_columns: set[str] = set()
+    projections: list[str] = []
+    aliases = source_aliases(len(schema))
+    for field, alias in zip(schema, aliases):
+        source = f"src.{quote_identifier(alias)}"
+        quoted = quote_identifier(field.name)
+        if _container_kind(field.type) is not None:
+            projections.append(f"CAST(to_json({source}) AS VARCHAR) AS {quoted}")
+            json_columns.add(field.name)
+        elif pa.types.is_timestamp(field.type) and field.type.tz is not None:
+            projections.append(f"CAST({source} AS VARCHAR) AS {quoted}")
+        else:
+            projections.append(f"{source} AS {quoted}")
+    batch_name = "__parqbridge_wide_decimal_inspect"
+    query = f"SELECT {', '.join(projections)} FROM \"{batch_name}\" AS src{alias_list(aliases)}"
+    rows: list[dict[str, Any]] = []
+    remaining_skip = offset
+    connection = connect_utc()
+    try:
+        with pq.ParquetFile(path) as parquet:
+            for source_batch in parquet.iter_batches(
+                batch_size=PREVIEW_ARROW_BATCH_SIZE,
+                use_threads=False,
+            ):
+                try:
+                    connection.register(
+                        batch_name,
+                        pa.Table.from_batches([duckdb_compatible_batch(source_batch)]),
+                    )
+                    cursor = connection.execute(query)
+                    columns = [description[0] for description in cursor.description or ()]
+                    for raw_row in cursor.fetchall():
+                        if remaining_skip:
+                            remaining_skip -= 1
+                            continue
+                        item: dict[str, Any] = {}
+                        for name, value in zip(columns, raw_row):
+                            if name in json_columns and value is not None:
+                                try:
+                                    value = json.loads(value)
+                                except (TypeError, json.JSONDecodeError):
+                                    value = None
+                            item[name] = _json_safe(value)
+                        rows.append(item)
+                        if len(rows) >= limit:
+                            break
+                finally:
+                    try:
+                        connection.unregister(batch_name)
+                    except Exception:
+                        pass
+                if len(rows) >= limit:
+                    break
+    except Exception as exc:
+        raise PBError("E_PARQUET_INVALID") from exc
+    finally:
+        connection.close()
+    return {
+        "columns": list(schema.names),
         "rows": rows,
         "offset": offset,
         "page_size": limit,

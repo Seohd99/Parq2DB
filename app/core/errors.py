@@ -66,6 +66,7 @@ WARNING_CODES: frozenset[str] = frozenset(
         "W_PASSWORD_IN_MAIN_CONFIG",
         "W_ALLOWED_ROOT_MISSING",
         "W_DECIMAL_PRECISION_WIDE",
+        "W_DECIMAL_SCALE_WIDE",
         "W_TIMESTAMP_TZ_UTC",
         "W_TIMESTAMP_PRECISION_LOSS",
         "W_TIME_PRECISION_LOSS",

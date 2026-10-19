@@ -12,7 +12,15 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from app.core.duckdb_utils import alias_list, connect_utc, literal_path, source_aliases, validate_source_schema
+from app.core.duckdb_utils import (
+    alias_list,
+    connect_utc,
+    duckdb_compatible_batch,
+    has_wide_decimal,
+    literal_path,
+    source_aliases,
+    validate_source_schema,
+)
 from app.core.dialects import SUPPORTED_DIALECTS
 from app.core.errors import PBError, warning
 from app.core.inspect import _json_safe
@@ -33,6 +41,7 @@ MAX_IDENTIFIER_CHARS = 64
 POSTGRES_IDENTIFIER_BYTES = 63
 EXPLODE_WARNING_MULTIPLIER = 10
 PARENT_KEY_SAMPLE_ROWS = 256
+WIDE_DECIMAL_BATCH_SIZE = 10_000
 
 
 def _max_identifier_length(dialect: str) -> int:
@@ -335,12 +344,17 @@ def build_count_sql(table: TableModel) -> tuple[str, list[str]]:
     return f"SELECT COUNT(*) FROM ({select_sql}) AS q", ["path"]
 
 
-def build_expected_count_sql(table: TableModel) -> str | None:
+def build_expected_count_sql(
+    table: TableModel,
+    *,
+    source: str = "read_parquet(?)",
+    projected: bool = False,
+) -> str | None:
     """Return SQL to count expected rows from array lengths or the explode formula."""
     plan = table.select_plan
     if plan is None or plan.expected_expression is None:
         return None
-    cte, from_clause = _source_parts(plan)
+    cte, from_clause = _source_parts(plan, source, projected=projected)
     for join in plan.expected_joins:
         expression = f"map_entries({join.expression})" if join.map_entries else join.expression
         from_clause += (
@@ -362,6 +376,14 @@ def query_table_preview(
     """Read one page from DuckDB and return its row count."""
     if limit < 1 or limit > 200 or offset < 0:
         raise PBError("E_BAD_REQUEST", fields=["offset", "limit"])
+    try:
+        with pq.ParquetFile(path) as parquet:
+            schema = parquet.schema_arrow
+        wide_decimal = any(has_wide_decimal(field.type) for field in schema)
+    except Exception as exc:
+        raise PBError("E_PARQUET_INVALID") from exc
+    if wide_decimal:
+        return _query_wide_decimal_preview(path, table, dialect=dialect, offset=offset, limit=limit)
     sql = build_select_sql(table, dialect=dialect, limit=limit, offset=offset)
     params: list[Any] = [literal_path(path), limit, offset]
     count_sql, _ = build_count_sql(table)
@@ -394,6 +416,100 @@ def query_table_preview(
                 except json.JSONDecodeError:
                     pass
         values.append({name: _json_safe(value) for name, value in item.items()})
+    return {
+        "name": table.name,
+        "columns": columns,
+        "rows": values,
+        "offset": offset,
+        "page_size": limit,
+        "actual_rows": actual_rows,
+        "expected_rows": expected_rows,
+        "has_next": offset + len(values) < actual_rows,
+    }
+
+
+def _query_wide_decimal_preview(
+    path: Path,
+    table: TableModel,
+    *,
+    dialect: str,
+    offset: int,
+    limit: int,
+) -> dict[str, Any]:
+    """Run flattening over bounded Arrow batches when DuckDB cannot hold decimal256."""
+    plan = table.select_plan
+    if plan is None:
+        raise ValueError(f"table {table.name} has no select plan")
+    batch_name = "__parqbridge_wide_decimal_preview"
+    read_columns = list(plan.read_columns)
+    query = build_select_sql(
+        table, dialect=dialect, source=f'"{batch_name}"', projected=bool(read_columns),
+    )
+    expected_sql = build_expected_count_sql(
+        table, source=f'"{batch_name}"', projected=bool(read_columns),
+    )
+    json_names = {column.name for column in table.columns if column.is_json}
+    row_id_expression = f"src.{_quote(plan.internal_row_id)}"
+    generated_id_name = next(
+        (item.name for item in plan.selections if item.expression == row_id_expression),
+        None,
+    )
+    connection = connect_utc()
+    actual_rows = 0
+    expected_rows = 0
+    input_row_offset = 0
+    page_end = offset + limit
+    values: list[dict[str, Any]] = []
+    try:
+        with pq.ParquetFile(path) as parquet:
+            batches = parquet.iter_batches(
+                batch_size=WIDE_DECIMAL_BATCH_SIZE,
+                columns=read_columns or None,
+                use_threads=False,
+            )
+            for source_batch in batches:
+                compatible_batch = duckdb_compatible_batch(source_batch)
+                try:
+                    connection.register(batch_name, pa.Table.from_batches([compatible_batch]))
+                    if expected_sql:
+                        expected_rows += int(connection.execute(expected_sql).fetchone()[0])
+                    reader = connection.sql(query).to_arrow_reader(WIDE_DECIMAL_BATCH_SIZE)
+                    try:
+                        for output_batch in reader:
+                            output_start = actual_rows
+                            actual_rows += output_batch.num_rows
+                            start = max(0, offset - output_start)
+                            end = min(output_batch.num_rows, page_end - output_start)
+                            if start >= end:
+                                continue
+                            for item in output_batch.slice(start, end - start).to_pylist():
+                                if generated_id_name and item.get(generated_id_name) is not None:
+                                    item[generated_id_name] += input_row_offset
+                                for name in json_names:
+                                    value = item.get(name)
+                                    if isinstance(value, str):
+                                        try:
+                                            item[name] = json.loads(value)
+                                        except json.JSONDecodeError:
+                                            pass
+                                values.append({name: _json_safe(value) for name, value in item.items()})
+                    finally:
+                        reader.close()
+                finally:
+                    try:
+                        connection.unregister(batch_name)
+                    except Exception:
+                        pass
+                input_row_offset += source_batch.num_rows
+    except PBError:
+        raise
+    except Exception as exc:
+        raise PBError("E_PARQUET_INVALID") from exc
+    finally:
+        connection.close()
+    if expected_sql is None:
+        expected_rows = actual_rows
+    columns = [column.name for column in table.columns]
     return {
         "name": table.name,
         "columns": columns,

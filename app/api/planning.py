@@ -37,7 +37,7 @@ from app.core.typemap import container_kind, measure_string_lengths
 def warning_for_dialect(item: dict, dialect: str) -> bool:
     code = item.get("code")
     params = item.get("params") or {}
-    if code in {"W_DECIMAL_PRECISION_WIDE", "W_UNSUPPORTED_TYPE"}:
+    if code in {"W_DECIMAL_PRECISION_WIDE", "W_DECIMAL_SCALE_WIDE", "W_UNSUPPORTED_TYPE"}:
         return params.get("dialect") == dialect
     if code == "W_TIMESTAMP_TZ_UTC":
         return dialect == "mysql"

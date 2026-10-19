@@ -218,6 +218,7 @@
   "warning.W_PASSWORD_IN_MAIN_CONFIG": "{file}의 [db.{kind}] password는 무시했습니다. 환경변수나 parqbridge.local.toml을 쓰세요.",
   "warning.W_ALLOWED_ROOT_MISSING": "허용 루트 {root}가 없거나 폴더가 아니어서 제외했습니다.",
   "warning.W_DECIMAL_PRECISION_WIDE": "Decimal 정밀도 {precision}가 {dialect} 한도를 넘어 문자열로 저장합니다.",
+  "warning.W_DECIMAL_SCALE_WIDE": "{dialect} decimal scale {scale}가 허용 범위 30을 넘어 문자열로 저장됩니다.",
   "warning.W_TIMESTAMP_TZ_UTC": "원본 시간대 {source_timezone}의 timestamp를 MySQL DATETIME에 맞춰 UTC로 변환합니다.",
   "warning.W_TIMESTAMP_PRECISION_LOSS": "{dialect}에서 timestamp 정밀도를 {precision}에서 {target_precision}으로 낮춥니다.",
   "warning.W_TIME_PRECISION_LOSS": "{dialect}에서 time 정밀도를 {precision}에서 {target_precision}으로 낮추니다.",

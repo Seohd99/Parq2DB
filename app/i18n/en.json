@@ -223,6 +223,7 @@
   "warning.W_PASSWORD_IN_MAIN_CONFIG": "Ignored password in [db.{kind}] of {file}. Use an environment variable or parqbridge.local.toml.",
   "warning.W_ALLOWED_ROOT_MISSING": "Allowed root {root} does not exist or is not a folder; it was skipped.",
   "warning.W_DECIMAL_PRECISION_WIDE": "Decimal precision {precision} exceeds the {dialect} limit and is stored as text.",
+  "warning.W_DECIMAL_SCALE_WIDE": "Decimal scale {scale} exceeds the {dialect} limit of 30 and is stored as text.",
   "warning.W_TIMESTAMP_TZ_UTC": "Timezone timestamp values from {source_timezone} are converted to UTC for MySQL DATETIME.",
   "warning.W_TIMESTAMP_PRECISION_LOSS": "Timestamp precision {precision} is reduced to {target_precision} for {dialect}.",
   "warning.W_TIME_PRECISION_LOSS": "Time precision {precision} is reduced to {target_precision} for {dialect}.",

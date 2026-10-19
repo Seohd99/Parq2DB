@@ -158,10 +158,19 @@ def map_arrow_type(
                 f"VARCHAR2({min(4000, max(1, precision + 2))} CHAR)", "decimal",
                 [warning("W_DECIMAL_PRECISION_WIDE", dialect=dialect, precision=precision)],
             )
-        if dialect == "mysql" and precision > 65:
+        if dialect == "mysql" and (precision > 65 or scale > 30):
+            warnings = []
+            if precision > 65:
+                warnings.append(warning(
+                    "W_DECIMAL_PRECISION_WIDE", dialect=dialect, precision=precision,
+                ))
+            if scale > 30:
+                warnings.append(warning(
+                    "W_DECIMAL_SCALE_WIDE", dialect=dialect, scale=scale,
+                ))
             return _type_result(
                 f"VARCHAR({min(16383, max(1, precision + 2))})", "decimal",
-                [warning("W_DECIMAL_PRECISION_WIDE", dialect=dialect, precision=precision)],
+                warnings,
             )
         if dialect == "postgres" and precision > 1000:
             return _type_result(
