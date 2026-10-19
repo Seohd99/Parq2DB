@@ -25,25 +25,16 @@ from app.core.duckdb_utils import (
     source_aliases,
     validate_source_schema,
 )
+from app.core.typemap import container_kind
 
 MAX_PAGE_SIZE = 200
 DEFAULT_PAGE_SIZE = 50
 PREVIEW_ARROW_BATCH_SIZE = 10_000
 
 
-def _container_kind(data_type: pa.DataType) -> str | None:
-    if pa.types.is_map(data_type):
-        return "map"
-    if pa.types.is_list(data_type) or pa.types.is_large_list(data_type) or pa.types.is_fixed_size_list(data_type):
-        return "list"
-    if pa.types.is_struct(data_type):
-        return "struct"
-    return None
-
-
 def _nested_depth(data_type: pa.DataType) -> int:
     """Return the deepest path, counting each nested container as one level."""
-    kind = _container_kind(data_type)
+    kind = container_kind(data_type)
     if kind is None:
         return 0
     if kind == "struct":
@@ -61,9 +52,9 @@ def classify_schema(schema: pa.Schema) -> dict[str, Any]:
     This is a pure function and does not read file contents or database state.
     """
     nested_columns = [
-        {"name": field.name, "kind": _container_kind(field.type), "max_depth": _nested_depth(field.type)}
+        {"name": field.name, "kind": container_kind(field.type), "max_depth": _nested_depth(field.type)}
         for field in schema
-        if _container_kind(field.type) is not None
+        if container_kind(field.type) is not None
     ]
     return {"kind": "nested" if nested_columns else "flat", "nested_columns": nested_columns}
 
@@ -75,7 +66,7 @@ def schema_tree(schema: pa.Schema) -> dict[str, Any]:
 
 def _field_tree(field: pa.Field) -> dict[str, Any]:
     data_type = field.type
-    kind = _container_kind(data_type) or "scalar"
+    kind = container_kind(data_type) or "scalar"
     node: dict[str, Any] = {
         "name": field.name,
         "type": str(data_type),
@@ -238,7 +229,7 @@ def preview_parquet(path: Path, offset: int = 0, limit: int = DEFAULT_PAGE_SIZE)
         # Read by positional alias: DuckDB matches names case-insensitively.
         source = f"src.{quote_identifier(alias)}"
         quoted = quote_identifier(field.name)
-        if _container_kind(field.type) is not None:
+        if container_kind(field.type) is not None:
             projections.append(f"CAST(to_json({source}) AS VARCHAR) AS {quoted}")
             json_columns.add(field.name)
         elif pa.types.is_timestamp(field.type) and field.type.tz is not None:
@@ -294,7 +285,7 @@ def _preview_wide_decimals(
     for field, alias in zip(schema, aliases):
         source = f"src.{quote_identifier(alias)}"
         quoted = quote_identifier(field.name)
-        if _container_kind(field.type) is not None:
+        if container_kind(field.type) is not None:
             projections.append(f"CAST(to_json({source}) AS VARCHAR) AS {quoted}")
             json_columns.add(field.name)
         elif pa.types.is_timestamp(field.type) and field.type.tz is not None:

@@ -307,3 +307,15 @@ def test_invalid_column_selection_is_rejected(tmp_path: Path, options, code, par
         plan(path, dialect="postgres", **{"mode": "none", **options})
     assert error.value.code == code
     assert error.value.params == params
+
+
+@pytest.mark.parametrize("dialect", ["oracle", "postgres"])
+def test_generated_name_suffix_fits_multibyte_names_within_byte_limit(dialect: str):
+    from app.core.flatten import _NameAllocator
+
+    allocator = _NameAllocator(dialect, "quoted")
+    base = "가" * (allocator.max_length // 3) + "a" * (allocator.max_length % 3)
+    assert allocator.allocate(base) == base
+    renamed = allocator.allocate_generated(base)
+    assert renamed != base and renamed.endswith("_2")
+    assert len(renamed.encode("utf-8")) <= allocator.max_length

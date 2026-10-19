@@ -75,8 +75,10 @@ def delete_file(file_id: str, request: Request) -> dict:
 @router.post("/api/files/{file_id}/release")
 def release_file_selection(file_id: str, request: Request) -> dict:
     """Cancel an unused selection's scan while leaving its source file untouched."""
-    get_files(request).get(file_id)
+    files = get_files(request)
+    files.get(file_id)
     get_string_scans(request).release(file_id)
+    files.forget_local(file_id)
     return {"released": True}
 
 

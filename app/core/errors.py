@@ -7,6 +7,7 @@ Warnings (W_*) use the same format.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 # Error code to default HTTP status. Add a message to ko.json and en.json for each new code.
@@ -108,3 +109,15 @@ def warning(code: str, **params: Any) -> dict[str, Any]:
     if code not in WARNING_CODES:
         raise ValueError(f"unknown warning code: {code}")
     return {"code": code, "params": params}
+
+
+def dedupe_warnings(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop repeated warnings with the same code and parameters, keeping first-seen order."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        key = (item["code"], repr(sorted((item.get("params") or {}).items())))
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out

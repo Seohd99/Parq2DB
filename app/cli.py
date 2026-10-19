@@ -23,7 +23,7 @@ from typing import Any, Sequence
 
 from app.core.config import AppConfig, load_config
 from app.core.dialects import DIALECT_LABELS, SUPPORTED_DIALECTS
-from app.core.errors import PBError, warning
+from app.core.errors import PBError, dedupe_warnings, warning
 from app.core.files import SelectedFile, resolve_allowed_path, validate_parquet_magic
 from app.core.inspect import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, inspect_parquet, preview_parquet
 from app.core.languages import default_language, language_code_for_locale, language_codes
@@ -394,7 +394,7 @@ def _load(args: argparse.Namespace) -> int:
         for table in models:
             warnings.extend(item for item in table.warnings if warning_for_dialect(item, args.dialect))
     validate_load_request(models, existing_policy, args.confirm_table)
-    _print_warnings(_dedupe_warnings(warnings), args.lang)
+    _print_warnings(dedupe_warnings(warnings), args.lang)
 
     batch_size = args.batch_size or config.load.batch_size
     manager = LoadJobManager(max_workers=1)
@@ -437,17 +437,6 @@ def _load(args: argparse.Namespace) -> int:
         return 0 if all(item.get("matched", True) for item in reports) else 1
     finally:
         manager.shutdown()
-
-
-def _dedupe_warnings(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for item in items:
-        key = (item["code"], repr(sorted((item.get("params") or {}).items())))
-        if key not in seen:
-            seen.add(key)
-            out.append(item)
-    return out
 
 
 def _config_check(args: argparse.Namespace) -> int:

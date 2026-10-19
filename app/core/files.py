@@ -107,6 +107,12 @@ class FileRegistry:
         self._files[selected.file_id] = selected
         return selected
 
+    def forget_local(self, file_id: str) -> None:
+        """Drop a released local-path handle; upload handles stay so the upload can be deleted."""
+        selected = self._files.get(file_id)
+        if selected is not None and selected.source == "local":
+            del self._files[file_id]
+
     def begin_upload(self, filename: str | None, max_bytes: int) -> StreamingUpload:
         """Open a safe temporary upload for a validated multipart file part."""
         return StreamingUpload(self, filename, max_bytes)

@@ -168,8 +168,10 @@ class _NameAllocator:
         self.used.add(name if self.policy == "quoted" else name.upper())
 
     def _fit(self, name: str, suffix: str) -> str:
-        room = self.max_length - len(suffix)
-        base = name[:max(1, room)]
+        # Trim by the dialect's size rule so multibyte names stay within byte limits.
+        base = name[:max(1, self.max_length - len(suffix))]
+        while len(base) > 1 and self._size(base + suffix) > self.max_length:
+            base = base[:-1]
         return base + suffix
 
     def _unique(self, base: str) -> str:

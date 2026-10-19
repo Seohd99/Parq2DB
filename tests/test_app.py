@@ -555,3 +555,23 @@ def test_ddl_api_applies_column_selection(tmp_path):
         })
         assert invalid.status_code == 400
         assert invalid.json()["error"]["code"] == "E_COLUMNS_EMPTY"
+
+
+def test_release_forgets_local_selection_but_keeps_upload_deletable(tmp_path):
+    path = tmp_path / "released-local.parquet"
+    pq.write_table(pa.table({"id": [1]}), path)
+    cfg = AppConfig(server=ServerConfig(allowed_roots=(tmp_path,), upload_dir=tmp_path / "uploads"))
+    with client_with(cfg) as client:
+        local_id = client.post("/api/files/local", json={"path": str(path)}).json()["file"]["file_id"]
+        upload_id = client.post(
+            "/api/files/upload", files={"file": ("released.parquet", path.read_bytes())},
+        ).json()["file"]["file_id"]
+
+        assert client.post(f"/api/files/{local_id}/release").status_code == 200
+        assert client.post(f"/api/files/{upload_id}/release").status_code == 200
+
+        gone = client.get(f"/api/files/{local_id}/inspect")
+        assert gone.status_code == 404
+        assert gone.json()["error"]["code"] == "E_FILE_NOT_FOUND"
+        assert client.delete(f"/api/files/{upload_id}").status_code == 200
+        assert path.is_file()

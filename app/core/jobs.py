@@ -358,8 +358,10 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
             table, dialect=dialect, source=f'"{batch_name}"', projected=bool(read_columns),
         )
 
+        # One connection serves every batch; only the registered batch changes.
+        connection = connect_utc()
+
         def transform_batch(batch: Any):
-            connection = connect_utc()
             reader = None
             try:
                 compatible_batch = duckdb_compatible_batch(batch)
@@ -376,7 +378,6 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
                     connection.unregister(batch_name)
                 except Exception:
                     pass
-                close_quietly(connection)
 
         pending_batches: list[Any] = []
         pending_rows = 0
@@ -391,13 +392,15 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
             pending_batches = combined.to_batches(max_chunksize=batch_size) if combined.num_rows else []
             pending_rows = combined.num_rows
 
+        parquet_file = None
         try:
-            with pq.ParquetFile(path) as metadata_file:
-                row_group_count = metadata_file.metadata.num_row_groups
+            # Parse the footer once; a fresh reader per row group still lets the
+            # memory pool return that row group's buffers before the next one.
+            parquet_file = pq.ParquetFile(path)
+            row_group_count = parquet_file.metadata.num_row_groups
             memory_pool = pa.default_memory_pool()
             release_unused = getattr(memory_pool, "release_unused", None)
             for row_group_index in range(row_group_count):
-                parquet_file = pq.ParquetFile(path)
                 batch = None
                 batches = None
                 try:
@@ -418,7 +421,6 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
                 finally:
                     batch = None
                     batches = None
-                    parquet_file.close()
                     if callable(release_unused):
                         try:
                             release_unused()
@@ -432,6 +434,10 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
             raise
         except Exception:
             raise PBError("E_PARQUET_INVALID") from None
+        finally:
+            if parquet_file is not None:
+                parquet_file.close()
+            close_quietly(connection)
         return
 
     try:
@@ -672,6 +678,10 @@ def execute_load(
         close_quietly(connection)
 
 
+# Finished jobs kept for status polling; older ones are forgotten as new jobs arrive.
+MAX_FINISHED_JOBS = 100
+
+
 class LoadJobManager:
     """Own queued/running jobs and prevent overlapping target-table loads."""
 
@@ -724,6 +734,7 @@ class LoadJobManager:
             conflicts = [self._active_tables[key] for key in keys if key in self._active_tables]
             if conflicts:
                 raise PBError("E_JOB_CONFLICT", table=tables[0].name)
+            self._prune_finished_locked()
             self._jobs[job_id] = job
             for key in keys:
                 self._active_tables[key] = job_id
@@ -777,6 +788,12 @@ class LoadJobManager:
                     job["finished"] = time.monotonic()
                     self._release_locked(job)
             return self._snapshot_locked(job)
+
+    def _prune_finished_locked(self) -> None:
+        """Keep only the most recent finished jobs; active jobs are never dropped."""
+        finished = [job_id for job_id, job in self._jobs.items() if job["finished"] is not None]
+        for job_id in finished[:max(0, len(finished) - MAX_FINISHED_JOBS)]:
+            del self._jobs[job_id]
 
     def _release_locked(self, job: dict[str, Any]) -> None:
         for key in job["table_keys"]:

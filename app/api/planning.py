@@ -19,7 +19,7 @@ from app.core.ddl_mysql import generate_mysql_ddl
 from app.core.ddl_oracle import generate_oracle_ddl
 from app.core.ddl_postgres import generate_postgres_ddl
 from app.core.dialects import SUPPORTED_DIALECTS
-from app.core.errors import PBError, warning
+from app.core.errors import PBError, dedupe_warnings, warning
 from app.core.files import SelectedFile
 from app.core.flatten import (
     build_expected_count_sql,
@@ -202,13 +202,7 @@ def build_ddl_result(
                 expected_rows=expected,
                 multiplier=round(expected / source_rows, 1),
             ))
-    deduped: list[dict] = []
-    seen: set[tuple[str, str]] = set()
-    for item in warnings:
-        key = (item["code"], repr(sorted((item.get("params") or {}).items())))
-        if key not in seen:
-            seen.add(key)
-            deduped.append(item)
+    deduped = dedupe_warnings(warnings)
 
     mappings = [
         {

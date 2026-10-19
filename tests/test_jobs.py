@@ -1,6 +1,7 @@
 import re
 import json
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -748,3 +749,57 @@ def test_job_snapshot_reports_insert_only_policy(monkeypatch, flat_parquet_path)
         assert job["existing_policy"] == "insert_only"
     finally:
         manager.shutdown()
+
+
+def test_job_manager_keeps_only_recent_finished_jobs(monkeypatch, tmp_path):
+    from app.core import jobs
+
+    monkeypatch.setattr(jobs, "MAX_FINISHED_JOBS", 2)
+    monkeypatch.setattr(jobs, "execute_load", lambda **_kwargs: {
+        "tables": [], "committed_batches": 0, "committed_rows": 0,
+    })
+    manager = LoadJobManager(max_workers=1)
+    try:
+        job_ids = []
+        for index in range(4):
+            table = TableModel(name=f"PB_TEST_PRUNE_{index}", columns=(ColumnModel("x", "x", "X", None, "int"),))
+            job_id = manager.submit(
+                path=tmp_path / "unused.parquet",
+                tables=[table],
+                profile=online_profile(),
+                source_rows=0,
+                batch_size=10,
+                existing_policy="fail",
+                confirm_table_name=None,
+            )["job_id"]
+            deadline = time.monotonic() + 3
+            while manager.get(job_id)["status"] in {"queued", "running"}:
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+            job_ids.append(job_id)
+
+        for job_id in job_ids[:1]:
+            with pytest.raises(PBError) as caught:
+                manager.get(job_id)
+            assert caught.value.code == "E_JOB_NOT_FOUND"
+        for job_id in job_ids[1:]:
+            assert manager.get(job_id)["status"] == "succeeded"
+    finally:
+        manager.shutdown()
+
+
+def test_none_mode_stream_reads_every_row_group_in_order(tmp_path):
+    import pyarrow as pa
+
+    path = tmp_path / "row-groups.parquet"
+    pq.write_table(pa.table({"id": list(range(23)), "tag": [f"t{i}" for i in range(23)]}), path, row_group_size=4)
+    table = planned_table(path)[0]
+    stream = _stream_batches(path, table, "postgres", batch_size=5)
+    try:
+        batches = list(stream)
+    finally:
+        stream.close()
+
+    assert [batch.num_rows for batch in batches] == [5, 5, 5, 5, 3]
+    rows = [row for batch in batches for row in _record_batch_rows(batch, table, "postgres")]
+    assert [row[0] for row in rows] == list(range(23))
