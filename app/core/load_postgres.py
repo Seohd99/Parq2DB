@@ -51,7 +51,6 @@ def _first_failing_row(connection: Any, sql: str, rows: Sequence[tuple[Any, ...]
                     return offset
                 return offset
             try:
-                cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
                 cursor.execute(f"RELEASE SAVEPOINT {savepoint}")
             except Exception:
                 return offset

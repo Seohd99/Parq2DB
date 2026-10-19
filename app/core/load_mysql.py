@@ -35,7 +35,7 @@ def _first_failing_row(connection: Any, sql: str, rows: Sequence[tuple[Any, ...]
                     return offset
                 return offset
             try:
-                cursor.execute("ROLLBACK TO SAVEPOINT PB_DIAGNOSTIC")
+                cursor.execute("RELEASE SAVEPOINT PB_DIAGNOSTIC")
             except Exception:
                 return offset
         return 0

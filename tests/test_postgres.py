@@ -17,7 +17,7 @@ from app.core.ddl_postgres import generate_postgres_ddl
 from app.core.errors import PBError
 from app.core.flatten import plan_tables, validate_table_name
 from app.core.jobs import PostgresNulValueError, convert_value, execute_load, validate_load_request
-from app.core.load_postgres import copy_sql, insert_batch, insert_sql
+from app.core.load_postgres import _first_failing_row, copy_sql, insert_batch, insert_sql
 from app.core.model import StringLength
 from app.core.typemap import measure_string_lengths, map_arrow_type
 from app.main import app
@@ -300,6 +300,52 @@ class _FakePgConnection:
         self.rollbacks += 1
 
 
+class _SavepointPgCursor:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, sql, params=None):
+        words = sql.split()
+        if words[0] == "SAVEPOINT":
+            self.connection.savepoints.append((words[1], self.connection.rows.copy()))
+        elif words[:2] == ["ROLLBACK", "TO"]:
+            self.connection.rollback_to(words[-1])
+        elif words[0] == "RELEASE":
+            self.connection.release(words[-1])
+        elif sql.startswith("INSERT"):
+            key = params[0]
+            if key in self.connection.rows:
+                raise _FakePgError("duplicate key")
+            self.connection.rows.add(key)
+
+    def close(self):
+        pass
+
+
+class _SavepointPgConnection:
+    def __init__(self):
+        self.rows = set()
+        self.savepoints = []
+        self.rollbacks = 0
+
+    def cursor(self):
+        return _SavepointPgCursor(self)
+
+    def rollback_to(self, name):
+        index = next(index for index, point in reversed(list(enumerate(self.savepoints))) if point[0] == name)
+        self.rows = self.savepoints[index][1].copy()
+        self.savepoints = self.savepoints[: index + 1]
+
+    def release(self, name):
+        index = next(index for index, point in reversed(list(enumerate(self.savepoints))) if point[0] == name)
+        self.savepoints = self.savepoints[:index]
+
+    def rollback(self):
+        self.rows.clear()
+        self.savepoints.clear()
+        self.rollbacks += 1
+
+
 def test_postgres_insert_batch_copies_rows_and_returns_driver_count():
     table = _table(pa.schema([pa.field("payload", pa.string())]))[0]
     connection = _FakePgConnection()
@@ -329,6 +375,24 @@ def test_postgres_insert_batch_reports_bad_row_after_failed_copy():
     assert failure.value.driver_code == "22021"
     assert connection.calls == [("copy", copy_sql(table), (("ok",), ("bad",)))]
     assert connection.rollbacks >= 2
+
+
+def test_postgres_failure_diagnosis_keeps_earlier_rows_until_final_rollback():
+    connection = _SavepointPgConnection()
+    sql = "INSERT INTO PB_TEST_POSTGRES (ID) VALUES (%s)"
+
+    assert _first_failing_row(connection, sql, [(1,), (2,), (3,), (2,)]) == 3
+    assert connection.rows == set()
+    assert connection.rollbacks == 1
+
+
+def test_postgres_failure_diagnosis_returns_zero_when_rows_are_unique():
+    connection = _SavepointPgConnection()
+    sql = "INSERT INTO PB_TEST_POSTGRES (ID) VALUES (%s)"
+
+    assert _first_failing_row(connection, sql, [(1,), (2,), (3,)]) == 0
+    assert connection.rows == set()
+    assert connection.rollbacks == 1
 
 
 def test_postgres_copy_text_rows_escape_control_characters():
