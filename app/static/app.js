@@ -58,8 +58,12 @@ function t(key, params = {}) {
 }
 
 function tCode(item) {
-  const prefix = item.code.startsWith("W_") ? "warning." : "error.";
-  return t(prefix + item.code, item.params || {});
+  const code = item && typeof item.code === "string" ? item.code : "E_HTTP_ERROR";
+  const params = item?.params && typeof item.params === "object" && !Array.isArray(item.params)
+    ? item.params
+    : {};
+  const prefix = code.startsWith("W_") ? "warning." : "error.";
+  return t(prefix + code, params);
 }
 
 function preferredLang(languages) {
@@ -154,9 +158,23 @@ function setTheme(theme) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw body.error || { code: "E_INTERNAL", params: {} };
+  let response;
+  try {
+    response = await fetch(path, options);
+  } catch (_) {
+    throw { code: "E_HTTP_ERROR", params: {} };
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch (_) {
+    if (!response.ok) throw { code: "E_HTTP_ERROR", params: {} };
+    body = {};
+  }
+  if (!response.ok) {
+    const error = body && typeof body === "object" ? body.error : null;
+    throw error && typeof error.code === "string" ? error : { code: "E_INTERNAL", params: {} };
+  }
   return body;
 }
 
@@ -436,7 +454,7 @@ function renderDdl() {
 }
 
 function showError(error) {
-  state.error = error;
+  state.error = error && typeof error.code === "string" ? error : { code: "E_HTTP_ERROR", params: {} };
   renderFeedback();
 }
 
@@ -1044,13 +1062,15 @@ async function loadSelection(file) {
     }
     void pollLengthScan(file.file_id);
     try {
-      state.inspection = await api(`/api/files/${encodeURIComponent(file.file_id)}/inspect`);
+      const inspection = await api(`/api/files/${encodeURIComponent(file.file_id)}/inspect`);
+      if (state.file?.file_id !== file.file_id) return;
+      state.inspection = inspection;
       populateDdlControls();
       renderInsertPlan();
       if (state.workTab === "insert") suggestInsertTable();
       await loadPreview();
     } catch (error) {
-      showError(error);
+      if (state.file?.file_id === file.file_id) showError(error);
     } finally {
       state.selectionBusy = false;
       render();
@@ -1075,49 +1095,94 @@ async function requestDdl(fileId, options = ddlOptions()) {
   return result;
 }
 
+async function updateDdlForFile(fileId) {
+  const ddl = await requestDdl(fileId);
+  if (state.file?.file_id !== fileId) return false;
+  state.ddl = ddl;
+  return true;
+}
+
+function pollDelay(failures, baseDelay = 500, maxDelay = 10000) {
+  return Math.min(baseDelay * (2 ** Math.min(failures, 5)), maxDelay);
+}
+
 async function pollLengthScan(fileId) {
+  let failures = 0;
+  let lastPollError = null;
   while (state.file?.file_id === fileId) {
+    let delay = 500;
     try {
       const scan = await api(`/api/files/${encodeURIComponent(fileId)}/length-scan`);
       if (state.file?.file_id !== fileId) return;
+      if (lastPollError && state.error === lastPollError) {
+        state.error = null;
+        renderFeedback();
+      }
+      lastPollError = null;
+      failures = 0;
       state.lengthScan = scan;
       render();
       if (scan.status === "ready") {
         if (state.ddl?.length_measurement === "estimated" && ddlOptions().length_scan === "full") {
-          state.ddl = await requestDdl(fileId);
-          if (state.file?.file_id === fileId) {
-            state.error = null;
-            renderDdl();
-            renderFeedback();
-          }
+          if (!await updateDdlForFile(fileId)) return;
+          state.error = null;
+          renderDdl();
+          renderFeedback();
         }
         return;
       }
       if (scan.status === "failed") return;
     } catch (error) {
-      if (state.file?.file_id === fileId) showError(error);
-      return;
+      if (state.file?.file_id !== fileId) return;
+      showError(error);
+      lastPollError = state.error;
+      failures += 1;
+      delay = pollDelay(failures);
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    await new Promise((resolve) => window.setTimeout(resolve, delay));
   }
 }
 
-async function loadPreview() {
-  if (!state.file) return;
+async function loadPreview(rollbackOffset = state.offset) {
+  const fileId = state.file?.file_id;
+  if (!fileId) return;
   state.limit = Number(document.getElementById("page-size").value || 50);
-  state.preview = await api(`/api/files/${encodeURIComponent(state.file.file_id)}/preview?offset=${state.offset}&limit=${state.limit}`);
+  const requestOffset = state.offset;
+  const requestLimit = state.limit;
+  try {
+    const preview = await api(`/api/files/${encodeURIComponent(fileId)}/preview?offset=${requestOffset}&limit=${requestLimit}`);
+    if (state.file?.file_id !== fileId || state.offset !== requestOffset || state.limit !== requestLimit) return;
+    state.preview = preview;
+  } catch (error) {
+    if (state.file?.file_id === fileId && state.offset === requestOffset && state.limit === requestLimit) {
+      state.offset = rollbackOffset;
+    }
+    throw error;
+  }
 }
 
-async function pollLoadJob() {
-  if (!state.job || !["queued", "running"].includes(state.job.status)) return;
+async function pollLoadJob(jobId = state.job?.job_id, failures = 0, lastPollError = null) {
+  if (!jobId || state.job?.job_id !== jobId || !["queued", "running"].includes(state.job.status)) return;
   try {
-    state.job = await api(`/api/jobs/${encodeURIComponent(state.job.job_id)}`);
+    const job = await api(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (state.job?.job_id !== jobId) return;
+    if (lastPollError && state.error === lastPollError) {
+      state.error = null;
+      renderFeedback();
+    }
+    state.job = job;
     renderLoad();
     renderInsertControls();
     if (["queued", "running"].includes(state.job.status)) {
-      window.setTimeout(pollLoadJob, 700);
+      window.setTimeout(() => pollLoadJob(jobId), 700);
     }
-  } catch (error) { showError(error); }
+  } catch (error) {
+    if (state.job?.job_id !== jobId || !["queued", "running"].includes(state.job.status)) return;
+    showError(error);
+    const pollError = state.error;
+    const nextFailures = failures + 1;
+    window.setTimeout(() => pollLoadJob(jobId, nextFailures, pollError), pollDelay(nextFailures, 700));
+  }
 }
 
 function setTab(tab) {
@@ -1235,9 +1300,11 @@ async function init() {
   });
   document.getElementById("delete-upload").addEventListener("click", async (event) => {
     if (!state.file || state.file.source !== "upload") return;
+    const fileId = state.file.file_id;
     await withBusy(event.currentTarget, async () => {
       try {
-        await api(`/api/files/${encodeURIComponent(state.file.file_id)}`, { method: "DELETE" });
+        await api(`/api/files/${encodeURIComponent(fileId)}`, { method: "DELETE" });
+        if (state.file?.file_id !== fileId) return;
         state.file = null;
         state.lengthScan = null;
         state.inspection = null;
@@ -1248,22 +1315,25 @@ async function init() {
     }, render);
   });
   document.getElementById("page-prev").addEventListener("click", async (event) => {
-    state.offset = Math.max(0, state.offset - state.limit);
     await withBusy(event.currentTarget, async () => {
-      try { await loadPreview(); renderPreview(); } catch (error) { showError(error); }
+      const previousOffset = state.offset;
+      state.offset = Math.max(0, previousOffset - state.limit);
+      try { await loadPreview(previousOffset); renderPreview(); } catch (error) { showError(error); }
     }, renderPreview);
   });
   document.getElementById("page-next").addEventListener("click", async (event) => {
-    state.offset += state.limit;
     await withBusy(event.currentTarget, async () => {
-      try { await loadPreview(); renderPreview(); } catch (error) { showError(error); }
+      const previousOffset = state.offset;
+      state.offset += state.limit;
+      try { await loadPreview(previousOffset); renderPreview(); } catch (error) { showError(error); }
     }, renderPreview);
   });
   document.getElementById("page-size").addEventListener("change", async (event) => {
-    state.offset = 0;
-    state.limit = Number(event.target.value);
     await withBusy(event.currentTarget, async () => {
-      try { await loadPreview(); renderPreview(); } catch (error) { showError(error); }
+      const previousOffset = state.offset;
+      state.offset = 0;
+      state.limit = Number(event.target.value);
+      try { await loadPreview(previousOffset); renderPreview(); } catch (error) { showError(error); }
     }, renderPreview);
   });
   const ddlOptionsElements = [
@@ -1276,13 +1346,16 @@ async function init() {
   }
   document.getElementById("ddl-generate").addEventListener("click", async (event) => {
     if (!state.file) return;
+    const fileId = state.file.file_id;
     await withBusy(event.currentTarget, async () => {
       try {
-        state.ddl = await requestDdl(state.file.file_id);
+        if (!await updateDdlForFile(fileId)) return;
         state.error = null;
         renderDdl();
         renderFeedback();
-      } catch (error) { showError(error); }
+      } catch (error) {
+        if (state.file?.file_id === fileId) showError(error);
+      }
     });
   });
   document.getElementById("ddl-copy").addEventListener("click", async (event) => {
@@ -1324,10 +1397,11 @@ async function init() {
   });
   document.getElementById("load-start").addEventListener("click", async (event) => {
     if (!state.file) return;
+    const fileId = state.file.file_id;
     const policy = document.getElementById("load-policy").value;
     await withBusy(event.currentTarget, async () => {
       try {
-        state.ddl = await requestDdl(state.file.file_id);
+        if (!await updateDdlForFile(fileId)) return;
         renderDdl();
         let confirmName = null;
         if (policy === "truncate" || policy === "drop_create") {
@@ -1340,7 +1414,8 @@ async function init() {
             return;
           }
         }
-        state.job = await api(`/api/files/${encodeURIComponent(state.file.file_id)}/load`, {
+        if (state.file?.file_id !== fileId) return;
+        const job = await api(`/api/files/${encodeURIComponent(fileId)}/load`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1349,24 +1424,33 @@ async function init() {
             confirm_table_name: confirmName,
           }),
         });
+        if (state.file?.file_id !== fileId) return;
+        state.job = job;
         state.jobOrigin = "create";
         state.error = null;
         renderLoad();
         renderInsertControls();
         pollLoadJob();
-      } catch (error) { showError(error); }
+      } catch (error) {
+        if (state.file?.file_id === fileId) showError(error);
+      }
     }, renderLoad);
   });
   for (const id of ["create-job", "insert-job"]) {
     document.getElementById(id).addEventListener("click", async (event) => {
       const button = event.target.closest("[data-job-cancel]");
       if (!button || !state.job?.job_id) return;
+      const jobId = state.job.job_id;
       await withBusy(button, async () => {
         try {
-          state.job = await api(`/api/jobs/${encodeURIComponent(state.job.job_id)}/cancel`, { method: "POST" });
+          const job = await api(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+          if (state.job?.job_id !== jobId) return;
+          state.job = job;
           renderLoad();
           pollLoadJob();
-        } catch (error) { showError(error); }
+        } catch (error) {
+          if (state.job?.job_id === jobId) showError(error);
+        }
       });
     });
   }
@@ -1456,6 +1540,7 @@ async function init() {
         state.insert.report = report;
         insertTable.value = report.table;
       } catch (error) {
+        if (state.file?.file_id !== fileId) return;
         state.insert.error = error;
       }
       renderInsertPlan();
@@ -1474,18 +1559,22 @@ async function init() {
   document.getElementById("insert-start").addEventListener("click", async (event) => {
     const report = state.insert.report;
     if (!state.file || !report) return;
+    const fileId = state.file.file_id;
     await withBusy(event.currentTarget, async () => {
       try {
         state.insert.error = null;
-        state.job = await api(`/api/files/${encodeURIComponent(state.file.file_id)}/insert`, {
+        const job = await api(`/api/files/${encodeURIComponent(fileId)}/insert`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dialect: report.dialect, table_name: report.table, columns: insertColumnNames() }),
         });
+        if (state.file?.file_id !== fileId) return;
+        state.job = job;
         state.jobOrigin = "insert";
         renderLoad();
         pollLoadJob();
       } catch (error) {
+        if (state.file?.file_id !== fileId) return;
         state.insert.error = error;
       }
       renderInsertControls();

@@ -189,3 +189,148 @@ assert.deepEqual(filterTableNames(names, 'zzz'), []);
         capture_output=True, text=True, encoding="utf-8", timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_api_normalizes_network_and_non_json_errors():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is unavailable for the JavaScript state test")
+    source = (Path(__file__).resolve().parents[1] / "app/static/app.js").read_text(encoding="utf-8")
+    source, startup = source.rsplit("\ninit();", 1)
+    assert not startup.strip()
+    harness = r"""
+const assert = require('node:assert/strict');
+const feedback = {textContent: '', classList: {toggle() {}}};
+const document = {getElementById: () => feedback};
+"""
+    checks = r"""
+const expected = {code: 'E_HTTP_ERROR', params: {}};
+async function assertHttpError() {
+  await assert.rejects(api('/api/test'), error => {
+    assert.deepEqual(error, expected);
+    return true;
+  });
+}
+(async () => {
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+  await assertHttpError();
+  globalThis.fetch = async () => ({ok: false, json: async () => { throw new SyntaxError('not JSON'); }});
+  await assertHttpError();
+  globalThis.fetch = async () => ({ok: true, json: async () => { throw new SyntaxError('empty response'); }});
+  assert.deepEqual(await api('/api/empty'), {});
+  assert.equal(tCode(undefined), 'error.E_HTTP_ERROR');
+  assert.equal(tCode({code: 17}), 'error.E_HTTP_ERROR');
+  showError(new TypeError('Failed to fetch'));
+  assert.deepEqual(state.error, expected);
+  state.insert.error = new TypeError('Failed to fetch');
+  assert.doesNotThrow(() => tCode(state.insert.error));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    result = subprocess.run(
+        [node, "-"],
+        input=harness + source + "\n" + checks,
+        capture_output=True, text=True, encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_async_file_results_do_not_overwrite_current_file_and_preview_rolls_back():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is unavailable for the JavaScript state test")
+    source = (Path(__file__).resolve().parents[1] / "app/static/app.js").read_text(encoding="utf-8")
+    source, startup = source.rsplit("\ninit();", 1)
+    assert not startup.strip()
+    harness = r"""
+const assert = require('node:assert/strict');
+const document = {getElementById: () => ({value: '50'})};
+globalThis.window = {setTimeout: resolve => { resolve(); }};
+render = renderFeedback = renderDdl = () => {};
+"""
+    checks = r"""
+(async () => {
+  let finishScan;
+  state.file = {file_id: 'scan-old'};
+  state.lengthScan = {status: 'pending', marker: 'keep'};
+  api = () => new Promise(resolve => { finishScan = resolve; });
+  const scanRequest = pollLengthScan('scan-old');
+  state.file = {file_id: 'scan-current'};
+  finishScan({status: 'ready', marker: 'stale'});
+  await scanRequest;
+  assert.deepEqual(state.lengthScan, {status: 'pending', marker: 'keep'});
+
+  let finishPreview;
+  state.file = {file_id: 'preview-old'};
+  state.offset = 50;
+  state.limit = 50;
+  state.preview = {marker: 'keep'};
+  api = () => new Promise(resolve => { finishPreview = resolve; });
+  const previewRequest = loadPreview(0);
+  state.file = {file_id: 'preview-current'};
+  state.offset = 0;
+  state.preview = {marker: 'current'};
+  finishPreview({marker: 'stale'});
+  await previewRequest;
+  assert.deepEqual(state.preview, {marker: 'current'});
+
+  let finishDdl;
+  state.file = {file_id: 'ddl-old'};
+  state.ddl = {marker: 'keep'};
+  requestDdl = () => new Promise(resolve => { finishDdl = resolve; });
+  const ddlRequest = updateDdlForFile('ddl-old');
+  state.file = {file_id: 'ddl-current'};
+  finishDdl({marker: 'stale'});
+  assert.equal(await ddlRequest, false);
+  assert.deepEqual(state.ddl, {marker: 'keep'});
+
+  state.file = {file_id: 'preview-failure'};
+  state.offset = 50;
+  api = async () => { throw {code: 'E_HTTP_ERROR', params: {}}; };
+  await assert.rejects(loadPreview(0));
+  assert.equal(state.offset, 0);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    result = subprocess.run(
+        [node, "-"],
+        input=harness + source + "\n" + checks,
+        capture_output=True, text=True, encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_failed_poll_retries_with_bounded_backoff_and_stops_for_replaced_job():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is unavailable for the JavaScript state test")
+    source = (Path(__file__).resolve().parents[1] / "app/static/app.js").read_text(encoding="utf-8")
+    source, startup = source.rsplit("\ninit();", 1)
+    assert not startup.strip()
+    harness = r"""
+const assert = require('node:assert/strict');
+globalThis.window = {setTimeout: () => 0};
+renderFeedback = renderLoad = renderInsertControls = () => {};
+"""
+    checks = r"""
+(async () => {
+  const scheduled = [];
+  globalThis.window.setTimeout = (callback, delay) => { scheduled.push({callback, delay}); };
+  state.job = {job_id: 'job-old', status: 'running'};
+  state.error = null;
+  let calls = 0;
+  api = async () => { calls += 1; throw {code: 'E_HTTP_ERROR', params: {}}; };
+  await pollLoadJob();
+  assert.equal(calls, 1);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].delay, 1400);
+  assert.equal(pollDelay(100, 700), 10000);
+  state.job = {job_id: 'job-current', status: 'running'};
+  await scheduled[0].callback();
+  assert.equal(calls, 1);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    result = subprocess.run(
+        [node, "-"],
+        input=harness + source + "\n" + checks,
+        capture_output=True, text=True, encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
