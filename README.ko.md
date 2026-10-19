@@ -1,8 +1,8 @@
 [English](README.md) | 한국어
 
-# ParqBridge
+# Parq2DB
 
-[![CI](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml)
+[![CI](https://github.com/Seohd99/Parq2DB/actions/workflows/ci.yml/badge.svg)](https://github.com/Seohd99/Parq2DB/actions/workflows/ci.yml)
 
 ## 언제 사용하나요?
 
@@ -13,23 +13,29 @@
 
 ## 개요
 
-ParqBridge는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Oracle(12.2+, 19c 기준 설계), MySQL 8+, PostgreSQL 16+용 DDL을 만드는 도구입니다. DB 설정이 있으면 연결 테스트, 테이블 생성, 배치 INSERT와 적재 후 행 수 대조까지 할 수 있습니다. FastAPI와 빌드 체인 없는 바닐라 JavaScript로 동작합니다. 웹 화면은 시스템 라이트/다크 설정을 따르며 테마를 전환하고 저장할 수 있습니다.
+Parq2DB는 Parquet 파일 하나를 로컬 웹 화면에서 살펴보고 Oracle(12.2+, 19c 기준 설계), MySQL 8+, PostgreSQL 16+용 DDL을 만드는 도구입니다. DB 설정이 있으면 연결 테스트, 테이블 생성, 배치 INSERT와 적재 후 행 수 대조까지 할 수 있습니다. FastAPI와 빌드 체인 없는 바닐라 JavaScript로 동작합니다. 웹 화면은 시스템 라이트/다크 설정을 따르며 테마를 전환하고 저장할 수 있습니다.
 
 현재 아키텍처와 설계 제약은 [설계 문서](docs/DESIGN.md)를 참고하세요.
 
 기본 서버 주소는 `http://127.0.0.1:8765`입니다. DB 프로필이 없거나 설정이 완전하지 않으면 조회와 DDL만 가능한 오프라인 모드로 실행됩니다.
 
+## ParqBridge에서 업그레이드
+
+0.4.0부터 프로젝트 이름은 Parq2DB, 패키지와 CLI 명령은 `parq2db`입니다. 저장소를 업데이트한 뒤 `uv run --no-dev parq2db`를 실행하면 editable 설치가 갱신됩니다.
+
+기존 `config/parqbridge.toml`, `config/parqbridge.local.toml`은 각각 `config/parq2db.toml`, `config/parq2db.local.toml`로 이름을 바꾸세요. `PARQBRIDGE_CONFIG`, `PARQBRIDGE_LANG`, `PARQBRIDGE_BIND_HOST`를 사용했다면 해당 `PARQ2DB_*` 이름으로 변경하세요. 프로필의 `password_env`는 임의의 환경변수 이름을 지정하는 설정이므로 기존 비밀번호 환경변수는 그대로 사용할 수 있습니다. 브라우저 언어·테마·작업 탭 설정은 새 `parq2db.*` 저장 키를 사용하며 기본값에서 시작합니다. 기존 업로드 파일과 DB 테이블은 그대로 유지됩니다.
+
 ## 스크린샷
 
-예제 데이터: struct·list 컬럼이 있는 2,500행짜리 생성 파일 `orders.parquet`. INSERT 스크린샷은 데모용 Oracle 테이블 `ORDERS`를 사용했습니다.
+예제 데이터: struct·list 컬럼이 있는 2,500행짜리 생성 파일 `orders.parquet`. DB 상태와 INSERT 스크린샷의 Oracle 테이블 `PB_TEST_ORDERS`는 가상 데모 메타데이터를 사용했으며, 실제 DB 연결이나 적재는 수행하지 않았습니다.
 
 | 파일 선택 | 파일 살펴보기: 스키마·통계 |
 |---|---|
-| ![파일 선택과 DB 상태](docs/screenshots/ko-select.png) | ![작업 탭, 파일 개요, 컬럼 통계, 스키마 트리](docs/screenshots/ko-inspect.png) |
+| ![파일 선택과 DB 상태](docs/screenshots/v0.4.0/ko-select.png) | ![작업 탭, 파일 개요, 컬럼 통계, 스키마 트리](docs/screenshots/v0.4.0/ko-inspect.png) |
 | **기존 테이블에 INSERT: 테이블 검색** | **기존 테이블에 INSERT: 컬럼 대응** |
-| ![입력할 때마다 걸러지는 테이블 목록](docs/screenshots/ko-insert-search.png) | ![이름으로 맞춘 파일 컬럼과 테이블 컬럼](docs/screenshots/ko-insert.png) |
+| ![입력할 때마다 걸러지는 테이블 목록](docs/screenshots/v0.4.0/ko-insert-search.png) | ![이름으로 맞춘 파일 컬럼과 테이블 컬럼](docs/screenshots/v0.4.0/ko-insert.png) |
 | **데이터 미리보기** | **새 테이블 만들기: DDL (PostgreSQL, 자식 테이블)** |
-| ![페이지 단위 데이터 미리보기](docs/screenshots/ko-preview.png) | ![생성된 DDL](docs/screenshots/ko-ddl.png) |
+| ![페이지 단위 데이터 미리보기](docs/screenshots/v0.4.0/ko-preview.png) | ![생성된 DDL](docs/screenshots/v0.4.0/ko-ddl.png) |
 
 ## 요구사항
 
@@ -62,9 +68,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 저장소를 받은 뒤 저장소 루트에서 앱을 실행합니다.
 
 ```bash
-git clone "https://github.com/Seohd99/ParqBridge.git"
-cd ParqBridge
-uv run --no-dev parqbridge
+git clone "https://github.com/Seohd99/Parq2DB.git"
+cd Parq2DB
+uv run --no-dev parq2db
 ```
 
 처음 실행하면 uv가 `.python-version`에 맞는 인터프리터가 없을 때 Python 3.14를 내려받고, `.venv`를 만들고, `uv.lock`에 기록된 버전을 설치한 뒤 `127.0.0.1:8765`에서 웹 서버를 시작합니다. 이후 실행은 같은 환경을 재사용합니다. `--no-dev`는 테스트 전용 패키지를 제외합니다. 실행에 설정 파일은 필요하지 않습니다. 로컬 폴더와 DB 설정은 [설정](#설정)을 참고합니다.
@@ -75,7 +81,7 @@ uv run --no-dev parqbridge
 uv run pytest -q -rs
 ```
 
-uv는 ParqBridge를 editable 모드로 설치하므로 설정과 업로드 파일은 계속 저장소의 `config/`, `workspace/` 폴더를 기준으로 찾습니다. `--no-editable`은 사용하지 않습니다.
+uv는 Parq2DB를 editable 모드로 설치하므로 설정과 업로드 파일은 계속 저장소의 `config/`, `workspace/` 폴더를 기준으로 찾습니다. `--no-editable`은 사용하지 않습니다.
 
 ### 대안: pip
 
@@ -84,8 +90,8 @@ Python 3.14를 직접 관리한다면 pip로 가상환경과 의존성을 준비
 PowerShell:
 
 ```powershell
-git clone "https://github.com/Seohd99/ParqBridge.git"
-Set-Location ParqBridge
+git clone "https://github.com/Seohd99/Parq2DB.git"
+Set-Location Parq2DB
 py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -94,8 +100,8 @@ py -3.14 -m venv .venv
 macOS/Linux (bash):
 
 ```bash
-git clone "https://github.com/Seohd99/ParqBridge.git"
-cd ParqBridge
+git clone "https://github.com/Seohd99/Parq2DB.git"
+cd Parq2DB
 python3.14 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
@@ -125,13 +131,13 @@ macOS/Linux (bash):
 로컬 파일을 선택하거나 DB를 설정하려면 예시 파일을 복사해 로컬 설정을 만듭니다. 실제 설정 파일은 gitignore 대상입니다.
 
 ```powershell
-Copy-Item config\parqbridge.example.toml config\parqbridge.toml
+Copy-Item config\parq2db.example.toml config\parq2db.toml
 ```
 
 macOS/Linux (bash):
 
 ```bash
-cp config/parqbridge.example.toml config/parqbridge.toml
+cp config/parq2db.example.toml config/parq2db.toml
 ```
 
 Parquet 로컬 경로를 선택하려면 `[server]`에 파일이 들어 있는 폴더를 허용 루트로 지정합니다. 앱은 이 루트 안의 경로만 보여 주며 선택 파일은 복사하거나 수정하지 않습니다.
@@ -159,23 +165,23 @@ DB를 사용할 때는 실제 값으로 해당 섹션을 채웁니다. 비밀번
 host = "db.example.local"
 port = 1521
 service_name = "ORCLPDB1"
-user = "parqbridge_user"
-password_env = "PARQBRIDGE_ORACLE_PASSWORD"
+user = "parq2db_user"
+password_env = "PARQ2DB_ORACLE_PASSWORD"
 
 [db.mysql]
 host = "db.example.local"
 port = 3306
-database = "parqbridge"
-user = "parqbridge_user"
-password_env = "PARQBRIDGE_MYSQL_PASSWORD"
+database = "parq2db"
+user = "parq2db_user"
+password_env = "PARQ2DB_MYSQL_PASSWORD"
 
 [db.postgres]
 host = "db.example.local"
 port = 5432                    # 기본값 5432
-database = "parqbridge"
+database = "parq2db"
 schema = "public"              # 선택 사항
-user = "parqbridge_user"
-password_env = "PARQBRIDGE_POSTGRES_PASSWORD"
+user = "parq2db_user"
+password_env = "PARQ2DB_POSTGRES_PASSWORD"
 ```
 
 현재 셸 세션에 환경변수를 설정하는 예입니다. 비밀번호를 명령줄 기록에 직접 입력하지 않도록 프롬프트에서 읽습니다.
@@ -184,32 +190,32 @@ PowerShell:
 
 ```powershell
 $secure = Read-Host "Oracle password" -AsSecureString
-$env:PARQBRIDGE_ORACLE_PASSWORD = [System.Net.NetworkCredential]::new("", $secure).Password
+$env:PARQ2DB_ORACLE_PASSWORD = [System.Net.NetworkCredential]::new("", $secure).Password
 ```
 
 macOS/Linux (bash):
 
 ```bash
-read -r -s -p "Oracle password: " PARQBRIDGE_ORACLE_PASSWORD
+read -r -s -p "Oracle password: " PARQ2DB_ORACLE_PASSWORD
 printf '\n'
-export PARQBRIDGE_ORACLE_PASSWORD
+export PARQ2DB_ORACLE_PASSWORD
 ```
 
-MySQL은 `PARQBRIDGE_MYSQL_PASSWORD`, PostgreSQL은 `PARQBRIDGE_POSTGRES_PASSWORD`를 같은 방식으로 설정합니다. 환경변수 대신 비밀번호를 파일에 둘 경우 `config/parqbridge.local.toml`의 해당 `[db.<kind>]` 섹션에 `password = "..."`를 둡니다. 이 파일도 gitignore 대상입니다. 주 설정 `parqbridge.toml`의 `password`는 무시되고 경고가 표시됩니다.
+MySQL은 `PARQ2DB_MYSQL_PASSWORD`, PostgreSQL은 `PARQ2DB_POSTGRES_PASSWORD`를 같은 방식으로 설정합니다. 환경변수 대신 비밀번호를 파일에 둘 경우 `config/parq2db.local.toml`의 해당 `[db.<kind>]` 섹션에 `password = "..."`를 둡니다. 이 파일도 gitignore 대상입니다. 주 설정 `parq2db.toml`의 `password`는 무시되고 경고가 표시됩니다.
 
 다른 설정 파일을 사용하려면 서버를 실행하기 전에 환경변수를 지정합니다.
 
 ```powershell
-$env:PARQBRIDGE_CONFIG = "C:\path\to\parqbridge.toml"
+$env:PARQ2DB_CONFIG = "C:\path\to\parq2db.toml"
 ```
 
 macOS/Linux (bash):
 
 ```bash
-export PARQBRIDGE_CONFIG="/path/to/parqbridge.toml"
+export PARQ2DB_CONFIG="/path/to/parq2db.toml"
 ```
 
-`config/parqbridge.local.toml`은 기본 설정 파일 위에 병합됩니다. DB 섹션이 없거나 필수 값 또는 비밀번호가 빠져 있으면 해당 DB만 오프라인 상태가 되고, 화면에 사유와 설정 안내가 나타납니다.
+`config/parq2db.local.toml`은 기본 설정 파일 위에 병합됩니다. DB 섹션이 없거나 필수 값 또는 비밀번호가 빠져 있으면 해당 DB만 오프라인 상태가 되고, 화면에 사유와 설정 안내가 나타납니다.
 
 ## 실행
 
@@ -218,7 +224,7 @@ export PARQBRIDGE_CONFIG="/path/to/parqbridge.toml"
 uv:
 
 ```bash
-uv run --no-dev parqbridge
+uv run --no-dev parq2db
 ```
 
 pip로 만든 환경, PowerShell:
@@ -245,17 +251,17 @@ Uvicorn 직접 실행 명령은 Uvicorn 기본 주소인 `127.0.0.1:8000`을 사
 
 ## CLI
 
-하위 명령 없이 `python -m app` 또는 `parqbridge`를 실행하면 웹 서버가 시작됩니다. 명령줄 작업은 `.venv`의 Python 또는 `uv run --no-dev parqbridge <명령>`으로 실행하며, 입력 Parquet 경로는 설정의 `[server].allowed_roots` 안에 있어야 합니다. 파일은 원래 위치에서 읽기 전용으로 열립니다.
+하위 명령 없이 `python -m app` 또는 `parq2db`를 실행하면 웹 서버가 시작됩니다. 명령줄 작업은 `.venv`의 Python 또는 `uv run --no-dev parq2db <명령>`으로 실행하며, 입력 Parquet 경로는 설정의 `[server].allowed_roots` 안에 있어야 합니다. 파일은 원래 위치에서 읽기 전용으로 열립니다.
 
 uv:
 
 ```bash
-uv run --no-dev parqbridge --help
-uv run --no-dev parqbridge inspect "D:\data\part.parquet"
-uv run --no-dev parqbridge ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
+uv run --no-dev parq2db --help
+uv run --no-dev parq2db inspect "D:\data\part.parquet"
+uv run --no-dev parq2db ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
 ```
 
-아래 예시는 pip로 만든 환경 기준이며, 각 `-m app` 형식은 `uv run --no-dev parqbridge`로도 실행할 수 있습니다.
+아래 예시는 pip로 만든 환경 기준이며, 각 `-m app` 형식은 `uv run --no-dev parq2db`로도 실행할 수 있습니다.
 
 PowerShell:
 
@@ -287,11 +293,11 @@ python=.venv/bin/python
 "$python" -m app config check
 ```
 
-`ddl`과 `load`의 dialect 선택지는 현재 지원 방언에서 가져옵니다. `--lang <코드>`는 각 명령 뒤에 붙여 `app/i18n/` 카탈로그 중 출력 언어를 고르며 기본값보다 우선합니다. 지정하지 않으면 `PARQBRIDGE_LANG`, `LC_ALL`, `LC_MESSAGES`, `LANG` 순으로 확인하고, Windows에서는 시스템 로캘과 UI 언어도 확인합니다. 지원되는 로캘은 해당 카탈로그를 사용하고, 지원하지 않거나 찾을 수 없는 언어는 영어로 처리합니다. `load`의 `truncate` 또는 `drop_create`는 대상 부모 테이블명과 같은 `--confirm-table` 값이 필요하며, Ctrl+C는 배치 경계에서 적재를 취소하고 이미 커밋된 행을 결과에 표시합니다. 종료 코드는 성공 `0`, 실패 `1`, 확인 거부 `2`, 취소 `130`입니다. DB 비밀번호는 CLI 인자로 받지 않으며 기존 `password_env` 또는 `config/parqbridge.local.toml` 설정을 사용합니다.
+`ddl`과 `load`의 dialect 선택지는 현재 지원 방언에서 가져옵니다. `--lang <코드>`는 각 명령 뒤에 붙여 `app/i18n/` 카탈로그 중 출력 언어를 고르며 기본값보다 우선합니다. 지정하지 않으면 `PARQ2DB_LANG`, `LC_ALL`, `LC_MESSAGES`, `LANG` 순으로 확인하고, Windows에서는 시스템 로캘과 UI 언어도 확인합니다. 지원되는 로캘은 해당 카탈로그를 사용하고, 지원하지 않거나 찾을 수 없는 언어는 영어로 처리합니다. `load`의 `truncate` 또는 `drop_create`는 대상 부모 테이블명과 같은 `--confirm-table` 값이 필요하며, Ctrl+C는 배치 경계에서 적재를 취소하고 이미 커밋된 행을 결과에 표시합니다. 종료 코드는 성공 `0`, 실패 `1`, 확인 거부 `2`, 취소 `130`입니다. DB 비밀번호는 CLI 인자로 받지 않으며 기존 `password_env` 또는 `config/parq2db.local.toml` 설정을 사용합니다.
 
 `ddl -o`는 입력 Parquet 또는 Parquet 파일을 출력 대상으로 거부합니다. 기존 출력 파일을 바꾸려면 `--force`를 지정하세요. `ddl`과 `load`는 `--length-scan full|sample`로 길이 측정 범위를 선택할 수 있고 기본값은 `full`입니다. `--column NAME`을 반복해 지정하면 해당 최상위 컬럼만 포함하며, 지정하지 않으면 모든 컬럼을 포함합니다. `load --insert-only`는 `CREATE` 없이 기존 `--table`에 INSERT하며 파일 컬럼을 테이블 컬럼과 이름으로 맞춥니다. `--if-exists`, `--mode child|explode`, `--parent-key`, `--explode-column`과 함께 쓸 수 없습니다.
 
-uv는 `parqbridge` 명령을 자동으로 제공합니다. pip로 만든 환경에서는 의존성을 설치한 뒤 선택 사항으로 설치할 수 있습니다. 설정과 업로드 파일이 저장소 기준으로 유지되도록 editable(`-e`)로 설치해야 하며, editable이 아닌 `pip install .`은 지원하지 않습니다.
+uv는 `parq2db` 명령을 자동으로 제공합니다. pip로 만든 환경에서는 의존성을 설치한 뒤 선택 사항으로 설치할 수 있습니다. 설정과 업로드 파일이 저장소 기준으로 유지되도록 editable(`-e`)로 설치해야 하며, editable이 아닌 `pip install .`은 지원하지 않습니다.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
@@ -398,7 +404,7 @@ macOS/Linux (bash):
 
 ### 지속적 통합(CI)
 
-[GitHub Actions](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml)는 `main` push, pull request, 수동 실행에서 동작합니다. Python 3.14와 커밋된 `uv.lock`으로 Windows·Ubuntu 단위 테스트를 실행합니다. 별도 Ubuntu 작업에서는 일회용 PostgreSQL 16.15, MySQL 8.4.11, Oracle Free 23.26.3 서비스 컨테이너를 띄웁니다. Actions는 커밋 SHA, 컨테이너 이미지는 digest로 고정합니다.
+[GitHub Actions](https://github.com/Seohd99/Parq2DB/actions/workflows/ci.yml)는 `main` push, pull request, 수동 실행에서 동작합니다. Python 3.14와 커밋된 `uv.lock`으로 Windows·Ubuntu 단위 테스트를 실행합니다. 별도 Ubuntu 작업에서는 일회용 PostgreSQL 16.15, MySQL 8.4.11, Oracle Free 23.26.3 서비스 컨테이너를 띄웁니다. Actions는 커밋 SHA, 컨테이너 이미지는 digest로 고정합니다.
 
 각 DB에서 통합 테스트 9개를 실행합니다. 생성·적재·행 수 및 한글·UTC 타임스탬프 왕복, 기본값·계산 컬럼이 있는 기존 테이블 INSERT, JSON·자식 테이블·행 전개 모드, 두 부모 키 방식의 append 정책, 배치 커밋 후 취소, 대소문자가 다른 컬럼 값 보존을 검증합니다. 테스트 테이블은 모두 `PB_TEST_` 접두사를 쓰고 정리합니다. CI에서는 DB 프로필이 없으면 skip 대신 실패하며, 실행별 artifact에서 JUnit 보고서를 내려받을 수 있습니다.
 
@@ -410,7 +416,7 @@ Oracle 작업은 위 Free 컨테이너 버전을 검증하며 모든 Oracle 12.2
 uv run pytest tests/integration -m postgres --db-config=/path/to/test.toml --require-db -q -rs
 ```
 
-명시한 TOML은 `password_env`를 사용하는 일반 프로필 형식이며 `config/parqbridge.local.toml`과 섞이지 않습니다. CI는 `tools/ci_database_config.py`로 runner 임시 폴더에 프로필을 생성하고, 일회용 컨테이너에만 공개된 테스트 비밀번호를 사용합니다.
+명시한 TOML은 `password_env`를 사용하는 일반 프로필 형식이며 `config/parq2db.local.toml`과 섞이지 않습니다. CI는 `tools/ci_database_config.py`로 runner 임시 폴더에 프로필을 생성하고, 일회용 컨테이너에만 공개된 테스트 비밀번호를 사용합니다.
 
 ### 의존성 변경
 
@@ -480,12 +486,12 @@ UPDATE_GOLDEN=1 .venv/bin/python -m pytest -q tests/test_ddl.py
 ## 보안과 운영 주의
 
 - 서버는 기본적으로 `127.0.0.1`에만 바인드합니다. 공유 네트워크에 공개하지 마세요.
-- `Host` 헤더가 `127.0.0.1`, `localhost`, `::1`, 설정한 바인드 호스트, `[server].allowed_hosts`의 이름 중 하나가 아니면 `E_HOST_NOT_ALLOWED`로 거부합니다. DNS 리바인딩 페이지를 막기 위한 검사입니다. 상태 변경 요청의 `Origin`이 요청의 scheme, 호스트, 포트와 다르면(다른 사이트나 다른 로컬 포트의 페이지) `E_ORIGIN_NOT_ALLOWED`로 거부합니다. `parqbridge serve --host`로 지정한 바인드 호스트는 그 실행에서 허용 이름에 추가됩니다. `0.0.0.0` 같은 와일드카드로 바인드하면 LAN 이름을 `server.allowed_hosts`에 적어야 하며, 이름 뒤에 쓴 포트는 무시됩니다.
+- `Host` 헤더가 `127.0.0.1`, `localhost`, `::1`, 설정한 바인드 호스트, `[server].allowed_hosts`의 이름 중 하나가 아니면 `E_HOST_NOT_ALLOWED`로 거부합니다. DNS 리바인딩 페이지를 막기 위한 검사입니다. 상태 변경 요청의 `Origin`이 요청의 scheme, 호스트, 포트와 다르면(다른 사이트나 다른 로컬 포트의 페이지) `E_ORIGIN_NOT_ALLOWED`로 거부합니다. `parq2db serve --host`로 지정한 바인드 호스트는 그 실행에서 허용 이름에 추가됩니다. `0.0.0.0` 같은 와일드카드로 바인드하면 LAN 이름을 `server.allowed_hosts`에 적어야 하며, 이름 뒤에 쓴 포트는 무시됩니다.
 - 원본 로컬 Parquet은 허용 루트 안에서 읽기 전용으로만 선택됩니다. 업로드 파일만 업로드 목록에서 삭제할 수 있습니다.
 - `allowed_roots`는 필요한 폴더로 좁히세요. 경로 탈출과 허용 루트 밖을 가리키는 링크는 차단됩니다.
-- 비밀번호는 환경변수 또는 gitignore된 `parqbridge.local.toml`에 둡니다. 비밀번호와 DSN을 로그, 화면, 응답, 테스트 fixture에 기록하지 마세요.
+- 비밀번호는 환경변수 또는 gitignore된 `parq2db.local.toml`에 둡니다. 비밀번호와 DSN을 로그, 화면, 응답, 테스트 fixture에 기록하지 마세요.
 - 서버를 재시작하면 메모리의 선택 파일 핸들과 작업 상태가 사라집니다. 브라우저를 닫아도 진행 중인 적재 작업은 중단되지 않습니다.
-- 웹 화면을 열면 서버가 GitHub 릴리스 API(`api.github.com`)에 최신 ParqBridge 릴리스를 묻고, 더 새 버전이 있으면 우측 하단에 릴리스 노트 링크와 업데이트 방법을 알림으로 보여 줍니다. 요청에는 `ParqBridge/<버전>` User-Agent만 담기며 파일이나 DB 정보는 보내지 않습니다. 결과는 메모리에 하루(실패하면 한 시간) 보관하고, 네트워크가 끊겼거나 막혀 있으면 알림을 띄우지 않습니다. 자동으로 설치하지는 않습니다. `[updates] check = false`로 확인을 끌 수 있고, "다음 버전까지 숨기기"는 브라우저별로 기억합니다.
+- 웹 화면을 열면 서버가 GitHub 릴리스 API(`api.github.com`)에 최신 Parq2DB 릴리스를 묻고, 더 새 버전이 있으면 우측 하단에 릴리스 노트 링크와 업데이트 방법을 알림으로 보여 줍니다. 요청에는 `Parq2DB/<버전>` User-Agent만 담기며 파일이나 DB 정보는 보내지 않습니다. 결과는 메모리에 하루(실패하면 한 시간) 보관하고, 네트워크가 끊겼거나 막혀 있으면 알림을 띄우지 않습니다. 자동으로 설치하지는 않습니다. `[updates] check = false`로 확인을 끌 수 있고, "다음 버전까지 숨기기"는 브라우저별로 기억합니다.
 
 ## 알려진 제한
 

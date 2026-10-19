@@ -1,6 +1,6 @@
-"""Check GitHub for a newer ParqBridge release.
+"""Check GitHub for a newer Parq2DB release.
 
-The check sends one unauthenticated GET to the GitHub releases API with a ParqBridge
+The check sends one unauthenticated GET to the GitHub releases API with a Parq2DB
 User-Agent and nothing else about the user, files, or databases. Results are kept in
 memory only: a successful answer for a day, a failure for an hour, so restarts and page
 reloads stay well under GitHub's unauthenticated rate limit. Failures never raise; the
@@ -19,7 +19,7 @@ from typing import Any
 
 from app import __version__
 
-REPOSITORY = "Seohd99/ParqBridge"
+REPOSITORY = "Seohd99/Parq2DB"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 RELEASE_PAGE = f"https://github.com/{REPOSITORY}/releases/tag/v{{version}}"
 SUCCESS_TTL_SECONDS = 24 * 60 * 60
@@ -63,7 +63,7 @@ def fetch_latest_release() -> dict[str, Any]:
         LATEST_RELEASE_API,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": f"ParqBridge/{__version__}",
+            "User-Agent": f"Parq2DB/{__version__}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
     )

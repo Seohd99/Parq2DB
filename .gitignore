@@ -5,7 +5,10 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# Local settings and secrets: only config/parqbridge.example.toml is committed.
+# Local settings and secrets: only config/parq2db.example.toml is committed.
+config/parq2db.toml
+config/parq2db.local.toml
+# Keep pre-rename settings ignored during upgrades.
 config/parqbridge.toml
 config/parqbridge.local.toml
 .env

@@ -87,7 +87,7 @@ WARNING_CODES: frozenset[str] = frozenset(
 
 
 class PBError(Exception):
-    """Represent a ParqBridge domain error; code is a key in ERROR_STATUS."""
+    """Represent a Parq2DB domain error; code is a key in ERROR_STATUS."""
 
     def __init__(self, code: str, status: int | None = None, **params: Any) -> None:
         if code not in ERROR_STATUS:

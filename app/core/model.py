@@ -70,7 +70,7 @@ class SelectPlan:
 
     selections: tuple[SelectItem, ...]
     joins: tuple[JoinSpec, ...] = ()
-    internal_row_id: str = "__parqbridge_internal_row_id"
+    internal_row_id: str = "__parq2db_internal_row_id"
     needs_row_id: bool = False
     row_id_strategy: str = "file_row_number"
     expected_expression: str | None = None

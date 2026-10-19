@@ -16,7 +16,7 @@ PUBLIC_TARGETS = (
     Path("AGENTS.md"),
     Path("CLAUDE.md"),
     Path("docs"),
-    Path("config/parqbridge.example.toml"),
+    Path("config/parq2db.example.toml"),
     Path("tools"),
     Path("tests"),
     Path("app"),
@@ -41,7 +41,7 @@ _COMMENT_CONFIGS = {
     Path("pyproject.toml"),
     Path("pytest.ini"),
     Path("requirements.txt"),
-    Path("config/parqbridge.example.toml"),
+    Path("config/parq2db.example.toml"),
 }
 
 

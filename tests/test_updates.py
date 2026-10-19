@@ -51,7 +51,7 @@ def test_available_release_builds_the_link_from_the_version():
         "status": "available",
         "current_version": "0.3.0",
         "latest_version": "0.4.0",
-        "release_url": "https://github.com/Seohd99/ParqBridge/releases/tag/v0.4.0",
+        "release_url": "https://github.com/Seohd99/Parq2DB/releases/tag/v0.4.0",
     }
 
 
@@ -129,9 +129,9 @@ def test_fetch_sends_only_a_user_agent_and_limits_the_response(monkeypatch):
 
     monkeypatch.setattr(updates.urllib.request, "urlopen", urlopen)
     assert updates.fetch_latest_release()["tag_name"] == "v0.4.0"
-    assert seen["url"] == "https://api.github.com/repos/Seohd99/ParqBridge/releases/latest"
+    assert seen["url"] == "https://api.github.com/repos/Seohd99/Parq2DB/releases/latest"
     assert seen["timeout"] == updates.TIMEOUT_SECONDS
-    assert seen["headers"]["User-agent"].startswith("ParqBridge/")
+    assert seen["headers"]["User-agent"].startswith("Parq2DB/")
     assert request_has_no_credentials(seen["headers"])
 
     monkeypatch.setattr(updates, "MAX_RESPONSE_BYTES", 10)

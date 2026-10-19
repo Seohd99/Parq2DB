@@ -179,7 +179,7 @@ def test_postgres_web_status_and_ddl_modes_are_available_offline(tmp_path: Path,
 
 
 def test_postgres_config_defaults_schema_and_public_secret_filtering(tmp_path: Path):
-    config_path = tmp_path / "parqbridge.toml"
+    config_path = tmp_path / "parq2db.toml"
     config_path.write_text(
         '[db.postgres]\nhost = "db.invalid"\ndatabase = "pb"\nschema = "analytics"\n'
         'user = "pb_user"\npassword_env = "PB_TEST_PG_PASSWORD"\n',

@@ -1,4 +1,4 @@
-"""Measure ParqBridge's large-file API and streaming load paths on Windows.
+"""Measure Parq2DB's large-file API and streaming load paths on Windows.
 
 The selected Parquet file is only opened for reading. Database writes are sent to
 an in-memory fake MySQL connection that records counts without retaining rows.

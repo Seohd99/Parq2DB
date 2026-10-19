@@ -37,7 +37,7 @@ class StringScanManager:
     """Deduplicate, bound, cancel, and report full length scans."""
 
     def __init__(self, max_workers: int = 2) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="parqbridge-scan")
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="parq2db-scan")
         self._condition = Condition(RLock())
         self._by_file: dict[str, _ScanRecord] = {}
         self._by_key: dict[tuple, _ScanRecord] = {}

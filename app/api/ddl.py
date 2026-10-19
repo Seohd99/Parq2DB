@@ -45,7 +45,7 @@ def download_ddl(file_id: str, options: DdlOptions, request: Request) -> Respons
         media_type="application/sql; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{result["table_name"]}.sql"',
-            "X-ParqBridge-Length-Measurement": "exact" if is_exact else "estimated",
-            "X-ParqBridge-Length-Scan-Status": scan["status"],
+            "X-Parq2DB-Length-Measurement": "exact" if is_exact else "estimated",
+            "X-Parq2DB-Length-Scan-Status": scan["status"],
         },
     )

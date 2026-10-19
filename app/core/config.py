@@ -1,8 +1,8 @@
 """Load settings and determine which databases are offline.
 
 Read order:
-  1. config/parqbridge.toml (if absent, use defaults and keep all databases offline)
-  2. config/parqbridge.local.toml (if present, overrides (1); the only config file that may contain a password)
+  1. config/parq2db.toml (if absent, use defaults and keep all databases offline)
+  2. config/parq2db.local.toml (if present, overrides (1); the only config file that may contain a password)
 
 A database profile is online only when [db.<kind>] exists, includes all required keys,
 and a password is available. Otherwise, an offline reason is recorded as an error code.
@@ -22,12 +22,12 @@ from app.core.errors import PBError, warning
 from app.core.dialects import SUPPORTED_DIALECTS
 from app.core.hosts import normalize_allowed_host
 
-log = logging.getLogger("parqbridge.config")
+log = logging.getLogger("parq2db.config")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = PROJECT_ROOT / "config"
-DEFAULT_CONFIG_PATH = CONFIG_DIR / "parqbridge.toml"
-DEFAULT_LOCAL_PATH = CONFIG_DIR / "parqbridge.local.toml"
+DEFAULT_CONFIG_PATH = CONFIG_DIR / "parq2db.toml"
+DEFAULT_LOCAL_PATH = CONFIG_DIR / "parq2db.local.toml"
 DEFAULT_UPLOAD_DIR = PROJECT_ROOT / "workspace" / "uploads"
 
 # Required keys by database kind. target_key is used in the displayed connection target (host:port/<target>).

@@ -1,10 +1,10 @@
 English | [한국어](README.ko.md)
 
-# ParqBridge
+# Parq2DB
 
-[![CI](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml)
+[![CI](https://github.com/Seohd99/Parq2DB/actions/workflows/ci.yml/badge.svg)](https://github.com/Seohd99/Parq2DB/actions/workflows/ci.yml)
 
-## When should you use ParqBridge?
+## When should you use Parq2DB?
 
 - Convert Parquet files into Oracle, PostgreSQL, or MySQL tables
 - Generate SQL `CREATE TABLE` statements without manually mapping Parquet types
@@ -13,23 +13,29 @@ English | [한국어](README.ko.md)
 
 ## Overview
 
-ParqBridge is a local web tool for inspecting the schema and data in one Parquet file and generating DDL for Oracle (12.2+, designed around 19c), MySQL 8+, and PostgreSQL 16+. When a database profile is configured, you can also test the connection, create a table, load rows in batches, and compare row counts after loading. It runs on FastAPI and vanilla JavaScript with no build chain. The web interface follows the system light/dark preference and includes a saved theme toggle.
+Parq2DB is a local web tool for inspecting the schema and data in one Parquet file and generating DDL for Oracle (12.2+, designed around 19c), MySQL 8+, and PostgreSQL 16+. When a database profile is configured, you can also test the connection, create a table, load rows in batches, and compare row counts after loading. It runs on FastAPI and vanilla JavaScript with no build chain. The web interface follows the system light/dark preference and includes a saved theme toggle.
 
 For the current architecture and design constraints, see [Design](docs/DESIGN.md).
 
 The default server address is `http://127.0.0.1:8765`. If a database profile is missing or incomplete, the app runs in offline mode, where inspection and DDL generation remain available.
 
+## Upgrading from ParqBridge
+
+Version 0.4.0 renames the project to Parq2DB and the package and CLI command to `parq2db`. After updating your checkout, run `uv run --no-dev parq2db` to refresh the editable install.
+
+Rename existing `config/parqbridge.toml` and `config/parqbridge.local.toml` to `config/parq2db.toml` and `config/parq2db.local.toml`. Rename any `PARQBRIDGE_CONFIG`, `PARQBRIDGE_LANG`, or `PARQBRIDGE_BIND_HOST` overrides to the corresponding `PARQ2DB_*` names. A profile's `password_env` remains an arbitrary environment variable name; existing password variables still work without changes. Browser language, theme, and task-tab preferences use new `parq2db.*` storage keys and start from their defaults. Existing uploads and database tables are unchanged.
+
 ## Screenshots
 
-Sample data: a generated 2,500-row `orders.parquet` with struct and list columns. The INSERT screenshots use a demo Oracle table `ORDERS`.
+Sample data: a generated 2,500-row `orders.parquet` with struct and list columns. Database status and the Oracle table `PB_TEST_ORDERS` in the INSERT screenshots use simulated demo metadata; no database connection or load is performed.
 
 | Select a file | Explore the file: schema and statistics |
 |---|---|
-| ![File selection and database status](docs/screenshots/en-select.png) | ![Task tabs, file overview, column statistics, and schema tree](docs/screenshots/en-inspect.png) |
+| ![File selection and database status](docs/screenshots/v0.4.0/en-select.png) | ![Task tabs, file overview, column statistics, and schema tree](docs/screenshots/v0.4.0/en-inspect.png) |
 | **INSERT into an existing table: search tables** | **INSERT into an existing table: column match** |
-| ![Table names filtered as you type](docs/screenshots/en-insert-search.png) | ![File columns matched to table columns by name](docs/screenshots/en-insert.png) |
+| ![Table names filtered as you type](docs/screenshots/v0.4.0/en-insert-search.png) | ![File columns matched to table columns by name](docs/screenshots/v0.4.0/en-insert.png) |
 | **Preview data** | **Create a new table: DDL (PostgreSQL, child tables)** |
-| ![Paged data preview](docs/screenshots/en-preview.png) | ![Generated DDL](docs/screenshots/en-ddl.png) |
+| ![Paged data preview](docs/screenshots/v0.4.0/en-preview.png) | ![Generated DDL](docs/screenshots/v0.4.0/en-ddl.png) |
 
 ## Requirements
 
@@ -62,9 +68,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Then clone the repository and start the app from the repository root:
 
 ```bash
-git clone "https://github.com/Seohd99/ParqBridge.git"
-cd ParqBridge
-uv run --no-dev parqbridge
+git clone "https://github.com/Seohd99/Parq2DB.git"
+cd Parq2DB
+uv run --no-dev parq2db
 ```
 
 On the first run, uv downloads Python 3.14 if no matching interpreter is found (`.python-version`), creates `.venv`, installs the versions recorded in `uv.lock`, and starts the web server at `127.0.0.1:8765`. Later runs reuse the environment. `--no-dev` leaves out the test-only packages. No configuration file is required to start; see [Configuration](#configuration) for local folders and databases.
@@ -75,7 +81,7 @@ To run the unit tests, omit `--no-dev` so the `dev` dependency group is installe
 uv run pytest -q -rs
 ```
 
-uv installs ParqBridge in editable mode, so configuration and uploads still resolve under the repository's `config/` and `workspace/` folders. Do not use `--no-editable`.
+uv installs Parq2DB in editable mode, so configuration and uploads still resolve under the repository's `config/` and `workspace/` folders. Do not use `--no-editable`.
 
 ### Alternative: pip
 
@@ -84,8 +90,8 @@ If you already manage Python 3.14 yourself, prepare the virtual environment and 
 PowerShell:
 
 ```powershell
-git clone "https://github.com/Seohd99/ParqBridge.git"
-Set-Location ParqBridge
+git clone "https://github.com/Seohd99/Parq2DB.git"
+Set-Location Parq2DB
 py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -94,8 +100,8 @@ py -3.14 -m venv .venv
 macOS/Linux (bash):
 
 ```bash
-git clone "https://github.com/Seohd99/ParqBridge.git"
-cd ParqBridge
+git clone "https://github.com/Seohd99/Parq2DB.git"
+cd Parq2DB
 python3.14 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -r requirements.txt
@@ -125,13 +131,13 @@ A configuration file is optional. Without one, the app starts with default setti
 To select local files or configure databases, copy the example file to create a local configuration file. The actual configuration file is ignored by git.
 
 ```powershell
-Copy-Item config\parqbridge.example.toml config\parqbridge.toml
+Copy-Item config\parq2db.example.toml config\parq2db.toml
 ```
 
 macOS/Linux (bash):
 
 ```bash
-cp config/parqbridge.example.toml config/parqbridge.toml
+cp config/parq2db.example.toml config/parq2db.toml
 ```
 
 To select a local Parquet path, set an allowed root in `[server]` to the folder containing the file. The app only lists paths under this root and does not copy or modify the selected file.
@@ -159,23 +165,23 @@ When using a database, fill in the relevant section with actual values. We recom
 host = "db.example.local"
 port = 1521
 service_name = "ORCLPDB1"
-user = "parqbridge_user"
-password_env = "PARQBRIDGE_ORACLE_PASSWORD"
+user = "parq2db_user"
+password_env = "PARQ2DB_ORACLE_PASSWORD"
 
 [db.mysql]
 host = "db.example.local"
 port = 3306
-database = "parqbridge"
-user = "parqbridge_user"
-password_env = "PARQBRIDGE_MYSQL_PASSWORD"
+database = "parq2db"
+user = "parq2db_user"
+password_env = "PARQ2DB_MYSQL_PASSWORD"
 
 [db.postgres]
 host = "db.example.local"
 port = 5432                    # Default: 5432
-database = "parqbridge"
+database = "parq2db"
 schema = "public"              # Optional
-user = "parqbridge_user"
-password_env = "PARQBRIDGE_POSTGRES_PASSWORD"
+user = "parq2db_user"
+password_env = "PARQ2DB_POSTGRES_PASSWORD"
 ```
 
 Here is an example of setting an environment variable in the current shell session. Read the password at a prompt so it is not entered directly into command history.
@@ -184,32 +190,32 @@ PowerShell:
 
 ```powershell
 $secure = Read-Host "Oracle password" -AsSecureString
-$env:PARQBRIDGE_ORACLE_PASSWORD = [System.Net.NetworkCredential]::new("", $secure).Password
+$env:PARQ2DB_ORACLE_PASSWORD = [System.Net.NetworkCredential]::new("", $secure).Password
 ```
 
 macOS/Linux (bash):
 
 ```bash
-read -r -s -p "Oracle password: " PARQBRIDGE_ORACLE_PASSWORD
+read -r -s -p "Oracle password: " PARQ2DB_ORACLE_PASSWORD
 printf '\n'
-export PARQBRIDGE_ORACLE_PASSWORD
+export PARQ2DB_ORACLE_PASSWORD
 ```
 
-Set `PARQBRIDGE_MYSQL_PASSWORD` for MySQL and `PARQBRIDGE_POSTGRES_PASSWORD` for PostgreSQL in the same way. If you store a password in a file instead of an environment variable, put `password = "..."` in the corresponding `[db.<kind>]` section of `config/parqbridge.local.toml`. This file is also ignored by git. The `password` value in the main `parqbridge.toml` is ignored and a warning is shown.
+Set `PARQ2DB_MYSQL_PASSWORD` for MySQL and `PARQ2DB_POSTGRES_PASSWORD` for PostgreSQL in the same way. If you store a password in a file instead of an environment variable, put `password = "..."` in the corresponding `[db.<kind>]` section of `config/parq2db.local.toml`. This file is also ignored by git. The `password` value in the main `parq2db.toml` is ignored and a warning is shown.
 
 To use a different configuration file, set an environment variable before starting the server.
 
 ```powershell
-$env:PARQBRIDGE_CONFIG = "C:\path\to\parqbridge.toml"
+$env:PARQ2DB_CONFIG = "C:\path\to\parq2db.toml"
 ```
 
 macOS/Linux (bash):
 
 ```bash
-export PARQBRIDGE_CONFIG="/path/to/parqbridge.toml"
+export PARQ2DB_CONFIG="/path/to/parq2db.toml"
 ```
 
-`config/parqbridge.local.toml` is merged over the default configuration file. If a database section or a required value or password is missing, only that database is offline, and the app shows the reason and configuration guidance.
+`config/parq2db.local.toml` is merged over the default configuration file. If a database section or a required value or password is missing, only that database is offline, and the app shows the reason and configuration guidance.
 
 ## Run
 
@@ -218,7 +224,7 @@ Start the app using the host and port in the configuration. The default is `127.
 With uv:
 
 ```bash
-uv run --no-dev parqbridge
+uv run --no-dev parq2db
 ```
 
 With a pip-managed environment, PowerShell:
@@ -245,17 +251,17 @@ Add `app/i18n/<code>.json` with the same message keys and placeholders as the ex
 
 ## CLI
 
-`python -m app` and `parqbridge` with no subcommand start the web server. Run command-line tasks with the Python interpreter in `.venv`, or with `uv run --no-dev parqbridge <command>`; the input Parquet path must be under `[server].allowed_roots` in the configuration. The file is opened read-only at its original location.
+`python -m app` and `parq2db` with no subcommand start the web server. Run command-line tasks with the Python interpreter in `.venv`, or with `uv run --no-dev parq2db <command>`; the input Parquet path must be under `[server].allowed_roots` in the configuration. The file is opened read-only at its original location.
 
 uv:
 
 ```bash
-uv run --no-dev parqbridge --help
-uv run --no-dev parqbridge inspect "D:\data\part.parquet"
-uv run --no-dev parqbridge ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
+uv run --no-dev parq2db --help
+uv run --no-dev parq2db inspect "D:\data\part.parquet"
+uv run --no-dev parq2db ddl "D:\data\part.parquet" --dialect oracle --mode none --table PB_TEST_PART -o part.sql
 ```
 
-The examples below use a pip-managed environment; each `-m app` form also works as `uv run --no-dev parqbridge`.
+The examples below use a pip-managed environment; each `-m app` form also works as `uv run --no-dev parq2db`.
 
 PowerShell:
 
@@ -287,11 +293,11 @@ python=.venv/bin/python
 "$python" -m app config check
 ```
 
-The dialect choices for `ddl` and `load` come from the currently supported dialects. Add `--lang <code>` after each command to choose an output language from the catalogs in `app/i18n/`; an explicit value overrides the default. Without it, the CLI checks `PARQBRIDGE_LANG`, then `LC_ALL`, `LC_MESSAGES`, and `LANG`; Windows also checks the system locale and UI language. Supported locale preferences select their matching catalog, while unsupported or missing preferences default to English. The `truncate` or `drop_create` policy for `load` requires a `--confirm-table` value that matches the target parent table name. Ctrl+C cancels loading at a batch boundary and the result reports rows that were already committed. Exit codes are success `0`, failure `1`, confirmation denied `2`, and cancelled `130`. The CLI does not accept database passwords as arguments; it uses the existing `password_env` or `config/parqbridge.local.toml` setting.
+The dialect choices for `ddl` and `load` come from the currently supported dialects. Add `--lang <code>` after each command to choose an output language from the catalogs in `app/i18n/`; an explicit value overrides the default. Without it, the CLI checks `PARQ2DB_LANG`, then `LC_ALL`, `LC_MESSAGES`, and `LANG`; Windows also checks the system locale and UI language. Supported locale preferences select their matching catalog, while unsupported or missing preferences default to English. The `truncate` or `drop_create` policy for `load` requires a `--confirm-table` value that matches the target parent table name. Ctrl+C cancels loading at a batch boundary and the result reports rows that were already committed. Exit codes are success `0`, failure `1`, confirmation denied `2`, and cancelled `130`. The CLI does not accept database passwords as arguments; it uses the existing `password_env` or `config/parq2db.local.toml` setting.
 
 `ddl -o` rejects the input Parquet file and any Parquet file as an output target. Specify `--force` to replace an existing output file. `ddl` and `load` support `--length-scan full|sample` to choose the length measurement scope; the default is `full`. Repeat `--column NAME` to include only those top-level columns; without it, every column is included. `load --insert-only` inserts into the existing `--table` without `CREATE`, matching file columns to table columns by name; it cannot be combined with `--if-exists`, `--mode child|explode`, `--parent-key`, or `--explode-column`.
 
-uv provides the `parqbridge` command automatically. In a pip-managed environment, you can install it as an optional step after installing the dependencies. Keep the install editable (`-e`) so configuration and uploads resolve under the repository; a non-editable `pip install .` is not supported.
+uv provides the `parq2db` command automatically. In a pip-managed environment, you can install it as an optional step after installing the dependencies. Keep the install editable (`-e`) so configuration and uploads resolve under the repository; a non-editable `pip install .` is not supported.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
@@ -398,7 +404,7 @@ macOS/Linux (bash):
 
 ### Continuous integration
 
-[GitHub Actions](https://github.com/Seohd99/ParqBridge/actions/workflows/ci.yml) runs on pushes to `main`, pull requests, and manual dispatch. Unit tests run on Windows and Ubuntu with Python 3.14 and the committed `uv.lock`. Separate Ubuntu jobs start disposable PostgreSQL 16.15, MySQL 8.4.11, and Oracle Free 23.26.3 service containers. Actions and container images are pinned to commit SHAs and image digests.
+[GitHub Actions](https://github.com/Seohd99/Parq2DB/actions/workflows/ci.yml) runs on pushes to `main`, pull requests, and manual dispatch. Unit tests run on Windows and Ubuntu with Python 3.14 and the committed `uv.lock`. Separate Ubuntu jobs start disposable PostgreSQL 16.15, MySQL 8.4.11, and Oracle Free 23.26.3 service containers. Actions and container images are pinned to commit SHAs and image digests.
 
 Each database runs nine integration cases: create/load/count and Korean/UTC timestamp round trips; INSERT into existing tables with defaults and computed columns; JSON, child-table, and explode modes; both parent-key append policies; cancellation after a committed batch; and case-distinct column values. All tables use the `PB_TEST_` prefix and are cleaned up. CI fails if its database profile is missing rather than silently skipping tests. JUnit reports are downloadable from each workflow run's artifacts.
 
@@ -410,7 +416,7 @@ To require a dedicated local test profile explicitly:
 uv run pytest tests/integration -m postgres --db-config=/path/to/test.toml --require-db -q -rs
 ```
 
-The explicit TOML uses the normal profile format with `password_env`; it is isolated from `config/parqbridge.local.toml`. CI creates its profile under the runner's temporary directory with `tools/ci_database_config.py` and uses public passwords only for its disposable containers.
+The explicit TOML uses the normal profile format with `password_env`; it is isolated from `config/parq2db.local.toml`. CI creates its profile under the runner's temporary directory with `tools/ci_database_config.py` and uses public passwords only for its disposable containers.
 
 ### Changing dependencies
 
@@ -480,12 +486,12 @@ The script outputs JSON with the selected file's size, row count and number of r
 ## Security and operations notes
 
 - The server binds only to `127.0.0.1` by default. Do not expose it on a shared network.
-- Requests whose `Host` header is not `127.0.0.1`, `localhost`, `::1`, the configured bind host, or a name in `[server].allowed_hosts` are refused with `E_HOST_NOT_ALLOWED`; this blocks DNS-rebinding pages. State-changing requests whose `Origin` does not match the request's scheme, host, and port (a page on another site or on another local port) are refused with `E_ORIGIN_NOT_ALLOWED`. `parqbridge serve --host` adds its bind host to the allowed names for that run; a wildcard bind such as `0.0.0.0` needs the LAN names listed in `server.allowed_hosts`, where any port written after a name is ignored.
+- Requests whose `Host` header is not `127.0.0.1`, `localhost`, `::1`, the configured bind host, or a name in `[server].allowed_hosts` are refused with `E_HOST_NOT_ALLOWED`; this blocks DNS-rebinding pages. State-changing requests whose `Origin` does not match the request's scheme, host, and port (a page on another site or on another local port) are refused with `E_ORIGIN_NOT_ALLOWED`. `parq2db serve --host` adds its bind host to the allowed names for that run; a wildcard bind such as `0.0.0.0` needs the LAN names listed in `server.allowed_hosts`, where any port written after a name is ignored.
 - Original local Parquet files can only be selected from allowed roots and are read-only. Only uploaded files can be deleted from the upload list.
 - Keep `allowed_roots` limited to the folders you need. Path traversal and links pointing outside allowed roots are blocked.
-- Store passwords in environment variables or the gitignored `parqbridge.local.toml`. Do not record passwords or DSNs in logs, the UI, responses, or test fixtures.
+- Store passwords in environment variables or the gitignored `parq2db.local.toml`. Do not record passwords or DSNs in logs, the UI, responses, or test fixtures.
 - Restarting the server clears selected file handles and job state held in memory. Closing the browser does not stop a running load job.
-- When the web UI opens, the server asks the GitHub releases API (`api.github.com`) for the latest ParqBridge release and, if it is newer, shows a notice at the bottom right with the release notes link and how to update. The request carries only a `ParqBridge/<version>` User-Agent, nothing about your files or databases; the answer is kept in memory for a day (an hour after a failure), and an offline or blocked network just shows no notice. Nothing is installed automatically. Set `[updates] check = false` to turn the check off; "Hide until the next version" is remembered per browser.
+- When the web UI opens, the server asks the GitHub releases API (`api.github.com`) for the latest Parq2DB release and, if it is newer, shows a notice at the bottom right with the release notes link and how to update. The request carries only a `Parq2DB/<version>` User-Agent, nothing about your files or databases; the answer is kept in memory for a day (an hour after a failure), and an offline or blocked network just shows no notice. Nothing is installed automatically. Set `[updates] check = false` to turn the check off; "Hide until the next version" is remembered per browser.
 
 ## Known limitations
 

@@ -1,4 +1,4 @@
-"""Command-line entry points for ParqBridge.
+"""Command-line entry points for Parq2DB.
 
 All Parquet inspection, planning, DDL, validation, and loading behavior is
 delegated to the same core functions used by the web API.
@@ -46,7 +46,7 @@ def _default_lang(
 ) -> str:
     """Choose the CLI language from explicit environment and OS preferences."""
     env = os.environ if environ is None else environ
-    for name in ("PARQBRIDGE_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
+    for name in ("PARQ2DB_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
         value = env.get(name)
         if value and value.strip():
             return _language_from_locale(value) or default_language()
@@ -86,7 +86,7 @@ def _catalog(lang: str) -> dict[str, Any]:
 
 
 def _load_config() -> AppConfig:
-    path = os.environ.get("PARQBRIDGE_CONFIG")
+    path = os.environ.get("PARQ2DB_CONFIG")
     return load_config(Path(path) if path else None)
 
 
@@ -477,15 +477,15 @@ def _serve(args: argparse.Namespace) -> int:
     if not _is_loopback(host) and not any(item.get("code") == "W_BIND_ALL_INTERFACES" for item in warnings):
         warnings.append(warning("W_BIND_ALL_INTERFACES", host=host))
     _print_warnings(warnings, args.lang)
-    previous_bind_host = os.environ.get("PARQBRIDGE_BIND_HOST")
-    os.environ["PARQBRIDGE_BIND_HOST"] = host
+    previous_bind_host = os.environ.get("PARQ2DB_BIND_HOST")
+    os.environ["PARQ2DB_BIND_HOST"] = host
     try:
         uvicorn.run("app.main:app", host=host, port=port)
     finally:
         if previous_bind_host is None:
-            os.environ.pop("PARQBRIDGE_BIND_HOST", None)
+            os.environ.pop("PARQ2DB_BIND_HOST", None)
         else:
-            os.environ["PARQBRIDGE_BIND_HOST"] = previous_bind_host
+            os.environ["PARQ2DB_BIND_HOST"] = previous_bind_host
     return 0
 
 
@@ -527,7 +527,7 @@ def _offset(value: str) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="parqbridge", allow_abbrev=False)
+    parser = argparse.ArgumentParser(prog="parq2db", allow_abbrev=False)
     parser.add_argument("--lang", choices=language_codes(), default=_default_lang())
     parser.add_argument("--host", help=argparse.SUPPRESS)
     parser.add_argument("--port", type=_port, help=argparse.SUPPRESS)

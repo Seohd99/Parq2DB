@@ -1,8 +1,8 @@
-# ParqBridge agent and contributor guide
+# Parq2DB agent and contributor guide
 
 ## Project
 
-ParqBridge is a local web and CLI tool for inspecting one Parquet file, generating DDL for Oracle 12.2+ (designed around 19c), MySQL 8+, and PostgreSQL 16+, and optionally creating tables and loading rows when a database profile is configured.
+Parq2DB is a local web and CLI tool for inspecting one Parquet file, generating DDL for Oracle 12.2+ (designed around 19c), MySQL 8+, and PostgreSQL 16+, and optionally creating tables and loading rows when a database profile is configured.
 
 ## Repository map
 
@@ -15,7 +15,7 @@ ParqBridge is a local web and CLI tool for inspecting one Parquet file, generati
 - `app/core/db.py`, `load_oracle.py`, `load_mysql.py`, `load_postgres.py`, `jobs.py`: database connections, batch inserts, background load jobs, progress, cancellation, and row-count checks.
 - `app/core/errors.py`, `app/core/languages.py`, `app/i18n/*.json`: error and warning codes, catalog discovery, and translated messages.
 - `app/static/`: HTML, CSS, and vanilla JavaScript; there is no frontend build chain.
-- `config/parqbridge.example.toml`: safe configuration template. Local configuration files are ignored by git.
+- `config/parq2db.example.toml`: safe configuration template. Local configuration files are ignored by git.
 - `tests/`, `tests/golden/`: unit and optional database integration tests, plus DDL golden files.
 - `tools/`: developer utilities, including large-file measurement tooling.
 - `docs/DESIGN.md`: current architecture and design constraints.
@@ -27,7 +27,7 @@ Use Python 3.14 and a project-local virtual environment. Do not install dependen
 Recommended (uv; `.python-version` selects Python 3.14, `uv.lock` pins every package):
 
 ```bash
-uv run --no-dev parqbridge   # start the app
+uv run --no-dev parq2db   # start the app
 uv run pytest -q -rs         # tests need the dev dependency group
 ```
 
@@ -36,7 +36,7 @@ Alternative with pip, PowerShell:
 ```powershell
 py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item config\parqbridge.example.toml config\parqbridge.toml
+Copy-Item config\parq2db.example.toml config\parq2db.toml
 .\.venv\Scripts\python.exe -m app
 ```
 
@@ -45,11 +45,11 @@ macOS/Linux (bash):
 ```bash
 python3.14 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-cp config/parqbridge.example.toml config/parqbridge.toml
+cp config/parq2db.example.toml config/parq2db.toml
 .venv/bin/python -m app
 ```
 
-Only `config/parqbridge.example.toml` belongs in version control. `config/parqbridge.toml` and `config/parqbridge.local.toml` are ignored, and the local file overrides the main file. Keep passwords in the environment variable named by `password_env` or in the local file; a `password` in the main file is ignored and produces a warning.
+Only `config/parq2db.example.toml` belongs in version control. `config/parq2db.toml` and `config/parq2db.local.toml` are ignored, and the local file overrides the main file. Keep passwords in the environment variable named by `password_env` or in the local file; a `password` in the main file is ignored and produces a warning.
 
 The default server bind is `127.0.0.1`. Database profiles are optional; a missing or incomplete profile, or a missing password, leaves that database in offline mode.
 

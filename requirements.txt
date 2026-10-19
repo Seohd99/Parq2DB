@@ -21,9 +21,9 @@ colorama==0.4.6 ; sys_platform == 'win32'
 cryptography==50.0.2
     # via oracledb
 duckdb==1.5.6
-    # via parqbridge
+    # via parq2db
 fastapi==0.143.0
-    # via parqbridge
+    # via parq2db
 h11==0.16.0
     # via
     #   httpcore
@@ -40,17 +40,17 @@ iniconfig==2.3.1
 opentelemetry-api==1.45.1
     # via fastapi
 oracledb==26.0.1
-    # via parqbridge
+    # via parq2db
 packaging==26.3
     # via pytest
 pluggy==1.7.0
     # via pytest
 psycopg==3.3.6
-    # via parqbridge
+    # via parq2db
 psycopg-binary==3.3.6 ; implementation_name != 'pypy'
     # via psycopg
 pyarrow==26.0.0
-    # via parqbridge
+    # via parq2db
 pycparser==3.11 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
 pydantic==2.14.1
@@ -60,10 +60,10 @@ pydantic-core==2.50.1
 pygments==2.21.0
     # via pytest
 pymysql==1.2.3
-    # via parqbridge
+    # via parq2db
 pytest==9.1.1
 python-multipart==0.0.32
-    # via parqbridge
+    # via parq2db
 starlette==1.8.0
     # via fastapi
 typing-extensions==4.16.0
@@ -81,7 +81,7 @@ typing-inspection==0.4.4
     #   pydantic
 tzdata==2026.5
     # via
-    #   parqbridge
+    #   parq2db
     #   psycopg
 uvicorn==0.54.0
-    # via parqbridge
+    # via parq2db

@@ -1,4 +1,4 @@
-"""Database dialects supported by ParqBridge."""
+"""Database dialects supported by Parq2DB."""
 
 SUPPORTED_DIALECTS: tuple[str, ...] = ("oracle", "mysql", "postgres")
 

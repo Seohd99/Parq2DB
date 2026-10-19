@@ -33,7 +33,7 @@ from app.core.jobs import LoadJobManager
 from app.core.string_scans import StringScanManager
 from app.core.updates import UpdateChecker
 
-log = logging.getLogger("parqbridge")
+log = logging.getLogger("parq2db")
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
@@ -41,10 +41,10 @@ I18N_DIR = APP_DIR / "i18n"
 
 
 def _config_from_env() -> AppConfig:
-    # Set PARQBRIDGE_CONFIG to use a different config file, such as in tests.
-    p = os.environ.get("PARQBRIDGE_CONFIG")
+    # Set PARQ2DB_CONFIG to use a different config file, such as in tests.
+    p = os.environ.get("PARQ2DB_CONFIG")
     config = load_config(Path(p) if p else None)
-    bind_host = os.environ.get("PARQBRIDGE_BIND_HOST")
+    bind_host = os.environ.get("PARQ2DB_BIND_HOST")
     if bind_host:
         config = replace(config, server=replace(config.server, host=bind_host))
     return config
@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
         app.state.string_scans.shutdown()
 
 
-app = FastAPI(title="ParqBridge", version=__version__, lifespan=lifespan)
+app = FastAPI(title="Parq2DB", version=__version__, lifespan=lifespan)
 
 
 @app.middleware("http")

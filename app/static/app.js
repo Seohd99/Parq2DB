@@ -2,12 +2,12 @@
 
 // The API returns error codes and parameters; translate their messages here.
 const I18N = { lang: "en", dict: {} };
-const LANG_KEY = "parqbridge.lang";
-const THEME_KEY = "parqbridge.theme";
-const WORK_TAB_KEY = "parqbridge.workTab";
+const LANG_KEY = "parq2db.lang";
+const THEME_KEY = "parq2db.theme";
+const WORK_TAB_KEY = "parq2db.workTab";
 // The release version the user closed the update notice for; the notice returns for a later one.
-const UPDATE_DISMISS_KEY = "parqbridge.updateDismissed";
-const RELEASE_URL_PREFIX = "https://github.com/Seohd99/ParqBridge/releases/tag/";
+const UPDATE_DISMISS_KEY = "parq2db.updateDismissed";
+const RELEASE_URL_PREFIX = "https://github.com/Seohd99/Parq2DB/releases/tag/";
 const WORK_TABS = ["explore", "insert", "create"];
 const TABLE_SUGGESTION_LIMIT = 50;
 let LANGUAGES = [];

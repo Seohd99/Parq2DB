@@ -442,7 +442,7 @@ def _query_wide_decimal_preview(
     plan = table.select_plan
     if plan is None:
         raise ValueError(f"table {table.name} has no select plan")
-    batch_name = "__parqbridge_wide_decimal_preview"
+    batch_name = "__parq2db_wide_decimal_preview"
     read_columns = list(plan.read_columns)
     query = build_select_sql(
         table, dialect=dialect, source=f'"{batch_name}"', projected=bool(read_columns),
@@ -690,7 +690,7 @@ def plan_tables(
             total_rows=total_rows,
             margin=getattr(lengths, "margin", 1.0),
         ))
-    internal_row_id = "__parqbridge_internal_row_id"
+    internal_row_id = "__parq2db_internal_row_id"
     while internal_row_id.casefold() in {name.casefold() for name in schema.names}:
         internal_row_id += "_"
     row_id_strategy = (

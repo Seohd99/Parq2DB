@@ -27,7 +27,7 @@ def test_index_and_static(tmp_path):
         app_js = c.get("/static/app.js")
         en_catalog = c.get("/i18n/en.json")
         assert r.status_code == 200
-        assert "ParqBridge" in r.text
+        assert "Parq2DB" in r.text
         assert 'id="ddl-length-scan"' in r.text
         assert app_js.status_code == 200
         assert c.get("/i18n/ko.json").status_code == 200

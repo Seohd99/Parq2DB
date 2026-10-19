@@ -818,7 +818,7 @@ def _measure_full_lengths_duckdb(
             return local_lengths, local_rows
 
         if row_group_indices:
-            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="parqbridge-lengths") as executor:
+            with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="parq2db-lengths") as executor:
                 parts = list(executor.map(scan_groups, groups_by_worker))
             for part, _ in parts:
                 for name, item in part.items():

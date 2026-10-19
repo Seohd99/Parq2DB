@@ -345,7 +345,7 @@ def test_update_notice_shows_only_new_dismissable_releases_with_trusted_links():
     assert not startup.strip()
     checks = r"""
 const assert = require('node:assert/strict');
-const url = 'https://github.com/Seohd99/ParqBridge/releases/tag/v0.4.0';
+const url = 'https://github.com/Seohd99/Parq2DB/releases/tag/v0.4.0';
 const available = {status: 'available', current_version: '0.3.0', latest_version: '0.4.0', release_url: url};
 assert.deepEqual(updateNotice(available, null), {latest: '0.4.0', current: '0.3.0', url});
 assert.equal(updateNotice(available, '0.4.0'), null);

@@ -51,7 +51,7 @@ def configure_cli(
                 'host = "localhost"\n'
                 'database = "unit_test_db"\n'
                 'user = "unit_test_user"\n'
-                'password_env = "PARQBRIDGE_TEST_PASSWORD"\n'
+                'password_env = "PARQ2DB_TEST_PASSWORD"\n'
             )
         elif dialect == "oracle":
             config_text += (
@@ -60,7 +60,7 @@ def configure_cli(
                 "port = 1521\n"
                 'service_name = "unit_test_service"\n'
                 'user = "unit_test_user"\n'
-                'password_env = "PARQBRIDGE_TEST_PASSWORD"\n'
+                'password_env = "PARQ2DB_TEST_PASSWORD"\n'
             )
         else:
             config_text += (
@@ -69,10 +69,10 @@ def configure_cli(
                 "port = 3306\n"
                 'database = "unit_test_db"\n'
                 'user = "unit_test_user"\n'
-                'password_env = "PARQBRIDGE_TEST_PASSWORD"\n'
+                'password_env = "PARQ2DB_TEST_PASSWORD"\n'
             )
     config_path.write_text(config_text, encoding="utf-8")
-    env = {"PARQBRIDGE_TEST_PASSWORD": TEST_PASSWORD} if online else {}
+    env = {"PARQ2DB_TEST_PASSWORD": TEST_PASSWORD} if online else {}
     monkeypatch.setattr(
         cli,
         "_load_config",
@@ -253,12 +253,12 @@ def test_length_scan_cli_defaults_to_full_and_accepts_sample():
 @pytest.mark.parametrize(
     ("environ", "expected"),
     [
-        ({"PARQBRIDGE_LANG": "ko_KR", "LC_ALL": "en_US"}, "ko"),
-        ({"PARQBRIDGE_LANG": "en_US", "LANG": "ko_KR"}, "en"),
+        ({"PARQ2DB_LANG": "ko_KR", "LC_ALL": "en_US"}, "ko"),
+        ({"PARQ2DB_LANG": "en_US", "LANG": "ko_KR"}, "en"),
         ({"LC_ALL": "ko_KR.UTF-8", "LC_MESSAGES": "en_US"}, "ko"),
         ({"LC_MESSAGES": "ko_KR.UTF-8", "LANG": "en_US"}, "ko"),
         ({"LANG": "ko_KR.UTF-8"}, "ko"),
-        ({"PARQBRIDGE_LANG": "fr_FR", "LANG": "ko_KR.UTF-8"}, "en"),
+        ({"PARQ2DB_LANG": "fr_FR", "LANG": "ko_KR.UTF-8"}, "en"),
         ({"LC_ALL": "fr_FR.UTF-8", "LANG": "ko_KR.UTF-8"}, "en"),
         ({"LANG": "fr_FR.UTF-8"}, "en"),
         ({}, "en"),
@@ -276,7 +276,7 @@ def test_default_cli_language_uses_windows_preferences_when_available():
 
 
 def test_cli_language_option_overrides_environment(monkeypatch):
-    monkeypatch.setenv("PARQBRIDGE_LANG", "en")
+    monkeypatch.setenv("PARQ2DB_LANG", "en")
 
     assert cli._parser().parse_args(["config", "check"]).lang == "en"
     assert cli._parser().parse_args(["--lang", "ko", "config", "check"]).lang == "ko"
@@ -516,7 +516,7 @@ def test_serve_non_loopback_override_warns(monkeypatch, capsys, tmp_path):
 
 def test_serve_host_override_is_allowed_by_app(monkeypatch, tmp_path):
     config_path = configure_cli(monkeypatch, tmp_path)
-    monkeypatch.setenv("PARQBRIDGE_CONFIG", str(config_path))
+    monkeypatch.setenv("PARQ2DB_CONFIG", str(config_path))
     from fastapi.testclient import TestClient
     import uvicorn
 

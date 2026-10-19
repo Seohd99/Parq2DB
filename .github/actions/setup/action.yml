@@ -1,4 +1,4 @@
-name: Set up ParqBridge tests
+name: Set up Parq2DB tests
 description: Install Python 3.14 and project dependencies from the committed lock file
 runs:
   using: composite

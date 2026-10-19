@@ -292,7 +292,7 @@ def _preview_wide_decimals(
             projections.append(f"CAST({source} AS VARCHAR) AS {quoted}")
         else:
             projections.append(f"{source} AS {quoted}")
-    batch_name = "__parqbridge_wide_decimal_inspect"
+    batch_name = "__parq2db_wide_decimal_inspect"
     query = f"SELECT {', '.join(projections)} FROM \"{batch_name}\" AS src{alias_list(aliases)}"
     rows: list[dict[str, Any]] = []
     remaining_skip = offset

@@ -221,7 +221,7 @@ def _expected_rows(path: Path, table: TableModel, source_rows: int) -> int:
         with pq.ParquetFile(path) as parquet:
             schema = parquet.schema_arrow
             if any(has_wide_decimal(field.type) for field in schema):
-                batch_name = "__parqbridge_expected_batch"
+                batch_name = "__parq2db_expected_batch"
                 plan = table.select_plan
                 read_columns = list(plan.read_columns) if plan else []
                 expected_sql = build_expected_count_sql(
@@ -350,7 +350,7 @@ def _record_batch_rows(batch: Any, table: TableModel, dialect: str) -> list[tupl
 def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int):
     """Read Parquet rows in bounded batches and apply the table's select plan."""
     if table.mode == "none":
-        batch_name = "__parqbridge_load_batch"
+        batch_name = "__parq2db_load_batch"
         # Read only the selected columns; Parquet stores each column separately, so the
         # others are never decoded. Batches keep file order, matching the plan's read aliases.
         read_columns = list(table.select_plan.read_columns) if table.select_plan else []
@@ -450,7 +450,7 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
         plan = table.select_plan
         if plan is None:
             raise ValueError(f"table {table.name} has no select plan")
-        batch_name = "__parqbridge_wide_decimal_load"
+        batch_name = "__parq2db_wide_decimal_load"
         read_columns = list(plan.read_columns)
         query = build_select_sql(
             table, dialect=dialect, source=f'"{batch_name}"', projected=bool(read_columns),
@@ -688,7 +688,7 @@ class LoadJobManager:
     def __init__(self, max_workers: int = 2) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
-        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="parqbridge-load")
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="parq2db-load")
         self._lock = threading.RLock()
         self._jobs: dict[str, dict[str, Any]] = {}
         self._active_tables: dict[tuple[str, str], str] = {}

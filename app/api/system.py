@@ -20,7 +20,7 @@ def status(request: Request) -> dict:
 
 @router.get("/api/updates")
 def check_updates(request: Request) -> dict:
-    """Report whether a newer ParqBridge release exists; cached, and never an error."""
+    """Report whether a newer Parq2DB release exists; cached, and never an error."""
     return get_updates(request).status()
 
 

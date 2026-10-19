@@ -1,9 +1,9 @@
-# ParqBridge example settings. Copy this file to config/parqbridge.toml and edit it.
-# config/parqbridge.toml and config/parqbridge.local.toml are ignored by Git.
+# Parq2DB example settings. Copy this file to config/parq2db.toml and edit it.
+# config/parq2db.toml and config/parq2db.local.toml are ignored by Git.
 #
 # Read the password from the environment variable named by password_env.
-# If you cannot use an environment variable, set [db.oracle] password = "..." in config/parqbridge.local.toml.
-# (A password in this file or parqbridge.toml is ignored and triggers a warning.)
+# If you cannot use an environment variable, set [db.oracle] password = "..." in config/parq2db.local.toml.
+# (A password in this file or parq2db.toml is ignored and triggers a warning.)
 
 [server]
 host = "127.0.0.1"          # Do not change to 0.0.0.0; this tool is for local use only.
@@ -26,14 +26,14 @@ check = true  # Ask GitHub for a newer release when the web UI opens; false turn
 # port = 1521
 # service_name = "ORCLPDB1"
 # user = "PB_USER"
-# password_env = "PARQBRIDGE_ORACLE_PASSWORD"
+# password_env = "PARQ2DB_ORACLE_PASSWORD"
 
 # [db.mysql]
 # host = "db.example.local"
 # port = 3306
 # database = "pb"
 # user = "pb_user"
-# password_env = "PARQBRIDGE_MYSQL_PASSWORD"
+# password_env = "PARQ2DB_MYSQL_PASSWORD"
 
 # [db.postgres]
 # host = "db.example.local"
@@ -41,4 +41,4 @@ check = true  # Ask GitHub for a newer release when the web UI opens; false turn
 # database = "pb"
 # schema = "public"  # Optional
 # user = "pb_user"
-# password_env = "PARQBRIDGE_POSTGRES_PASSWORD"
+# password_env = "PARQ2DB_POSTGRES_PASSWORD"
