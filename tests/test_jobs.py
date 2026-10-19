@@ -59,16 +59,16 @@ class FakeCursor:
         self.params = params
         upper = sql.upper()
         if "INFORMATION_SCHEMA.TABLES" in upper:
-            table = params[0]
-            self.result = (1,) if table in self.connection.existing else None
+            table = self.connection.table_parameter(params)
+            self.result = (1,) if self.connection.has_table(table) else None
         elif "INFORMATION_SCHEMA.COLUMNS" in upper:
-            table = params[0]
-            self.result = [(name,) for name in sorted(self.connection.columns.get(table, set()))]
+            table = self.connection.table_parameter(params)
+            self.result = [(name,) for name in sorted(self.connection.table_columns(table))]
         elif upper.startswith("SELECT COUNT(*) FROM"):
             table = upper.split("FROM", 1)[1].strip().strip("`")
             self.result = (self.connection.row_counts.get(table, 0),)
         elif upper.startswith("CREATE TABLE"):
-            table = re.match(r"CREATE TABLE\s+([^\s(]+)", sql, re.I).group(1).strip("`")
+            table = re.match(r"CREATE TABLE\s+([^\s(]+)", sql, re.I).group(1).strip("`\"")
             self.connection.existing.add(table)
             column_block = sql.split("(", 1)[1].rsplit(")", 1)[0]
             self.connection.columns[table] = {
@@ -76,16 +76,15 @@ class FakeCursor:
                 for line in column_block.splitlines()
                 if line.strip()
             }
-            self.connection.statements.append(sql)
+            self.connection.record_statement(sql)
         elif upper.startswith("TRUNCATE TABLE"):
-            table = sql.split()[-1].strip("`")
-            self.connection.row_counts[table] = 0
-            self.connection.statements.append(sql)
+            table = sql.split()[-1].strip("`\"")
+            self.connection.set_row_count(table, 0)
+            self.connection.record_statement(sql)
         elif upper.startswith("DROP TABLE"):
-            table = sql.split()[2].strip("`")
-            self.connection.existing.discard(table)
-            self.connection.row_counts.pop(table, None)
-            self.connection.statements.append(sql)
+            table = sql.split()[2].strip("`\"")
+            self.connection.remove_table(table)
+            self.connection.record_statement(sql)
         elif upper.startswith("SAVEPOINT") or upper.startswith("ROLLBACK TO"):
             pass
         elif upper.startswith("INSERT INTO") and params is not None:
@@ -112,16 +111,51 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, *, existing=(), columns=None, fail_value=None):
+    def __init__(self, *, existing=(), columns=None, fail_value=None, on_statement=None):
         self.existing = set(existing)
         self.columns = dict(columns or {})
         self.fail_value = fail_value
+        self.on_statement = on_statement
         self.row_counts = {name: 0 for name in self.existing}
         self.pending = {}
         self.batch_sizes = []
         self.statements = []
         self.commits = 0
         self.rollbacks = 0
+
+    @staticmethod
+    def table_parameter(params):
+        if isinstance(params, dict):
+            return next(reversed(params.values()))
+        if isinstance(params, (tuple, list)):
+            return params[-1]
+        return params
+
+    def has_table(self, table):
+        return any(name.lower() == str(table).lower() for name in self.existing)
+
+    def table_columns(self, table):
+        return next(
+            (columns for name, columns in self.columns.items() if name.lower() == str(table).lower()),
+            set(),
+        )
+
+    def remove_table(self, table):
+        for name in tuple(self.existing):
+            if name.lower() == table.lower():
+                self.existing.discard(name)
+        for name in tuple(self.row_counts):
+            if name.lower() == table.lower():
+                self.row_counts.pop(name, None)
+
+    def set_row_count(self, table, count):
+        match = next((name for name in self.row_counts if name.lower() == table.lower()), table)
+        self.row_counts[match] = count
+
+    def record_statement(self, sql):
+        self.statements.append(sql)
+        if self.on_statement is not None:
+            self.on_statement(sql)
 
     def cursor(self):
         return FakeCursor(self)
@@ -454,7 +488,7 @@ def test_cancel_during_preparation_reports_cancelled(monkeypatch, flat_parquet_p
     assert result["committed_rows"] == 0
 
 
-def _generated_key_tables(tmp_path):
+def _generated_key_tables(tmp_path, dialect="mysql"):
     import pyarrow as pa
 
     path = tmp_path / "child.parquet"
@@ -464,7 +498,80 @@ def _generated_key_tables(tmp_path):
     }), path)
     with pq.ParquetFile(path) as parquet:
         schema = parquet.schema_arrow
-    return plan_tables(schema, table_name="PB_TEST_PARENT", mode="child", dialect="mysql", string_strategy="max")
+    return plan_tables(schema, table_name="PB_TEST_PARENT", mode="child", dialect=dialect, string_strategy="max")
+
+
+def test_cancel_during_drop_create_finishes_preparation_on_postgres(monkeypatch, tmp_path):
+    tables = _generated_key_tables(tmp_path, dialect="postgres")
+    cancel_event = threading.Event()
+
+    def cancel_after_drop(sql):
+        if sql.upper().startswith("DROP TABLE"):
+            cancel_event.set()
+
+    connection = FakeConnection(
+        existing={table.name for table in tables},
+        on_statement=cancel_after_drop,
+    )
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    result = execute_load(
+        path=tmp_path / "child.parquet",
+        tables=tables,
+        profile=online_profile("postgres"),
+        source_rows=2,
+        batch_size=10,
+        existing_policy="drop_create",
+        confirm_table_name=tables[0].name,
+        cancel_event=cancel_event,
+        progress=lambda *_: None,
+    )
+
+    drops = [statement for statement in connection.statements if statement.upper().startswith("DROP TABLE")]
+    creates = [statement for statement in connection.statements if statement.upper().startswith("CREATE TABLE")]
+    assert len(drops) == len(creates) == len(tables)
+    assert max(connection.statements.index(statement) for statement in drops) < min(
+        connection.statements.index(statement) for statement in creates
+    )
+    assert all(connection.has_table(table.name) for table in tables)
+    assert connection.commits == 1
+    assert result["cancelled"] is True
+    assert result["preparation_changes_applied"] is True
+    assert result["committed_rows"] == 0
+
+
+def test_cancel_during_truncate_finishes_preparation(monkeypatch, tmp_path):
+    tables = _generated_key_tables(tmp_path)
+    cancel_event = threading.Event()
+
+    def cancel_after_truncate(sql):
+        if sql.upper().startswith("TRUNCATE TABLE"):
+            cancel_event.set()
+
+    connection = FakeConnection(
+        existing={table.name for table in tables},
+        on_statement=cancel_after_truncate,
+    )
+    for table in tables:
+        connection.row_counts[table.name] = 4
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    result = execute_load(
+        path=tmp_path / "child.parquet",
+        tables=tables,
+        profile=online_profile(),
+        source_rows=2,
+        batch_size=10,
+        existing_policy="truncate",
+        confirm_table_name=tables[0].name,
+        cancel_event=cancel_event,
+        progress=lambda *_: None,
+    )
+
+    truncates = [statement for statement in connection.statements if statement.upper().startswith("TRUNCATE TABLE")]
+    assert len(truncates) == len(tables)
+    assert all(connection.row_counts[table.name] == 0 for table in tables)
+    assert result["cancelled"] is True
+    assert result["preparation_changes_applied"] is True
+    assert result["committed_rows"] == 0
 
 
 def test_append_with_generated_parent_key_requires_empty_tables(tmp_path):

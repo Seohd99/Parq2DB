@@ -166,6 +166,8 @@ def _prepare_tables(
     existing_policy: str,
     cancel_event: threading.Event,
 ) -> bool:
+    if cancel_event.is_set():
+        return False
     exists = _preflight(connection, profile, tables, existing_policy)
     if existing_policy == "insert_only":
         return False
@@ -173,37 +175,27 @@ def _prepare_tables(
     changed = False
     if existing_policy == "truncate":
         for table in reversed(tables):
-            if cancel_event.is_set():
-                return changed
             if exists[table.name]:
                 name = quote_identifier(table.name, profile.kind, quoted)
                 _execute_statement(connection, profile, f"TRUNCATE TABLE {name}")
                 changed = True
         for table in tables:
-            if cancel_event.is_set():
-                return changed
             if not exists[table.name]:
                 _execute_statement(connection, profile, _create_statement(profile, table))
                 changed = True
         return changed
     if existing_policy == "drop_create":
         for table in reversed(tables):
-            if cancel_event.is_set():
-                return changed
             if exists[table.name]:
                 name = quote_identifier(table.name, profile.kind, quoted)
                 suffix = " PURGE" if profile.kind == "oracle" else ""
                 _execute_statement(connection, profile, f"DROP TABLE {name}{suffix}")
                 changed = True
         for table in tables:
-            if cancel_event.is_set():
-                return changed
             _execute_statement(connection, profile, _create_statement(profile, table))
             changed = True
         return changed
     for table in tables:
-        if cancel_event.is_set():
-            return changed
         if existing_policy == "append" and exists[table.name]:
             continue
         _execute_statement(connection, profile, _create_statement(profile, table))
@@ -436,7 +428,11 @@ def execute_load(
     cancel_event: threading.Event,
     progress: LoadProgress,
 ) -> dict[str, Any]:
-    """Create/prepare planned tables, stream inserts, and compare driver-reported row counts."""
+    """Prepare tables, stream inserts, and compare driver-reported row counts.
+
+    Cancellation during preparation waits for all planned DDL to finish; PostgreSQL commits
+    that complete preparation before returning cancellation, matching Oracle/MySQL persistence.
+    """
     validate_load_request(tables, existing_policy, confirm_table_name)
     connection = connect(profile)
     reports: list[dict[str, Any]] = []
