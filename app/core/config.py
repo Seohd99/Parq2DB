@@ -20,6 +20,7 @@ from typing import Any
 
 from app.core.errors import PBError, warning
 from app.core.dialects import SUPPORTED_DIALECTS
+from app.core.hosts import normalize_allowed_host
 
 log = logging.getLogger("parqbridge.config")
 
@@ -48,7 +49,7 @@ class ServerConfig:
     upload_max_mb: int = 2048
     allowed_roots: tuple[Path, ...] = ()
     upload_dir: Path = DEFAULT_UPLOAD_DIR
-    # Extra Host header names accepted besides loopback and the bind host (see app/core/hosts.py).
+    # Extra Host header names; optional ports are stripped during parsing and matching.
     allowed_hosts: tuple[str, ...] = ()
 
     @property
@@ -171,13 +172,19 @@ def _parse_server(raw: Mapping[str, Any], file: str, warnings: list) -> ServerCo
     hosts_raw = raw.get("allowed_hosts", [])
     if not isinstance(hosts_raw, list) or not all(isinstance(h, str) and h.strip() for h in hosts_raw):
         raise PBError("E_CONFIG_INVALID", file=file, key="server.allowed_hosts", expected="list[str]")
+    allowed_hosts: list[str] = []
+    for value in hosts_raw:
+        name = normalize_allowed_host(value)
+        if name is None:
+            raise PBError("E_CONFIG_INVALID", file=file, key="server.allowed_hosts", expected="host name or host:port")
+        allowed_hosts.append(name)
 
     return ServerConfig(
         host=host,
         port=port,
         upload_max_mb=upload_max_mb,
         allowed_roots=tuple(roots),
-        allowed_hosts=tuple(h.strip() for h in hosts_raw),
+        allowed_hosts=tuple(allowed_hosts),
     )
 
 

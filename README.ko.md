@@ -477,7 +477,7 @@ UPDATE_GOLDEN=1 .venv/bin/python -m pytest -q tests/test_ddl.py
 ## 보안과 운영 주의
 
 - 서버는 기본적으로 `127.0.0.1`에만 바인드합니다. 공유 네트워크에 공개하지 마세요.
-- `Host` 헤더가 `127.0.0.1`, `localhost`, `::1`, 설정한 바인드 호스트, `[server].allowed_hosts`의 이름 중 하나가 아니면 `E_HOST_NOT_ALLOWED`로 거부합니다. DNS 리바인딩 페이지를 막기 위한 검사입니다. 다른 사이트의 페이지에서 보낸 상태 변경 요청은 `E_ORIGIN_NOT_ALLOWED`로 거부합니다.
+- `Host` 헤더가 `127.0.0.1`, `localhost`, `::1`, 설정한 바인드 호스트, `[server].allowed_hosts`의 이름 중 하나가 아니면 `E_HOST_NOT_ALLOWED`로 거부합니다. DNS 리바인딩 페이지를 막기 위한 검사입니다. 상태 변경 요청의 `Origin`이 요청의 scheme, 호스트, 포트와 다르면(다른 사이트나 다른 로컬 포트의 페이지) `E_ORIGIN_NOT_ALLOWED`로 거부합니다. `parqbridge serve --host`로 지정한 바인드 호스트는 그 실행에서 허용 이름에 추가됩니다. `0.0.0.0` 같은 와일드카드로 바인드하면 LAN 이름을 `server.allowed_hosts`에 적어야 하며, 이름 뒤에 쓴 포트는 무시됩니다.
 - 원본 로컬 Parquet은 허용 루트 안에서 읽기 전용으로만 선택됩니다. 업로드 파일만 업로드 목록에서 삭제할 수 있습니다.
 - `allowed_roots`는 필요한 폴더로 좁히세요. 경로 탈출과 허용 루트 밖을 가리키는 링크는 차단됩니다.
 - 비밀번호는 환경변수 또는 gitignore된 `parqbridge.local.toml`에 둡니다. 비밀번호와 DSN을 로그, 화면, 응답, 테스트 fixture에 기록하지 마세요.

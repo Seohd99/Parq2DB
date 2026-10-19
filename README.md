@@ -477,7 +477,7 @@ The script outputs JSON with the selected file's size, row count and number of r
 ## Security and operations notes
 
 - The server binds only to `127.0.0.1` by default. Do not expose it on a shared network.
-- Requests whose `Host` header is not `127.0.0.1`, `localhost`, `::1`, the configured bind host, or a name in `[server].allowed_hosts` are refused with `E_HOST_NOT_ALLOWED`; this blocks DNS-rebinding pages. State-changing requests sent from a page on another site are refused with `E_ORIGIN_NOT_ALLOWED`.
+- Requests whose `Host` header is not `127.0.0.1`, `localhost`, `::1`, the configured bind host, or a name in `[server].allowed_hosts` are refused with `E_HOST_NOT_ALLOWED`; this blocks DNS-rebinding pages. State-changing requests whose `Origin` does not match the request's scheme, host, and port (a page on another site or on another local port) are refused with `E_ORIGIN_NOT_ALLOWED`. `parqbridge serve --host` adds its bind host to the allowed names for that run; a wildcard bind such as `0.0.0.0` needs the LAN names listed in `server.allowed_hosts`, where any port written after a name is ignored.
 - Original local Parquet files can only be selected from allowed roots and are read-only. Only uploaded files can be deleted from the upload list.
 - Keep `allowed_roots` limited to the folders you need. Path traversal and links pointing outside allowed roots are blocked.
 - Store passwords in environment variables or the gitignored `parqbridge.local.toml`. Do not record passwords or DSNs in logs, the UI, responses, or test fixtures.

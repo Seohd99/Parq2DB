@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -41,7 +42,11 @@ I18N_DIR = APP_DIR / "i18n"
 def _config_from_env() -> AppConfig:
     # Set PARQBRIDGE_CONFIG to use a different config file, such as in tests.
     p = os.environ.get("PARQBRIDGE_CONFIG")
-    return load_config(Path(p) if p else None)
+    config = load_config(Path(p) if p else None)
+    bind_host = os.environ.get("PARQBRIDGE_BIND_HOST")
+    if bind_host:
+        config = replace(config, server=replace(config.server, host=bind_host))
+    return config
 
 
 @asynccontextmanager
@@ -70,6 +75,7 @@ async def reject_foreign_hosts(request: Request, call_next):
         request.headers.get("host"),
         request.headers.get("origin"),
         request.app.state.allowed_hosts,
+        scheme=request.url.scheme,
     )
     if code is not None:
         return JSONResponse(status_code=403, content={"error": {"code": code, "params": {}}})

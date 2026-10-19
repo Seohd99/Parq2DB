@@ -488,7 +488,15 @@ def _serve(args: argparse.Namespace) -> int:
     if not _is_loopback(host) and not any(item.get("code") == "W_BIND_ALL_INTERFACES" for item in warnings):
         warnings.append(warning("W_BIND_ALL_INTERFACES", host=host))
     _print_warnings(warnings, args.lang)
-    uvicorn.run("app.main:app", host=host, port=port)
+    previous_bind_host = os.environ.get("PARQBRIDGE_BIND_HOST")
+    os.environ["PARQBRIDGE_BIND_HOST"] = host
+    try:
+        uvicorn.run("app.main:app", host=host, port=port)
+    finally:
+        if previous_bind_host is None:
+            os.environ.pop("PARQBRIDGE_BIND_HOST", None)
+        else:
+            os.environ["PARQBRIDGE_BIND_HOST"] = previous_bind_host
     return 0
 
 

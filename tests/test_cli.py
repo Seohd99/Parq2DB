@@ -514,6 +514,29 @@ def test_serve_non_loopback_override_warns(monkeypatch, capsys, tmp_path):
     assert "모든 인터페이스" in capsys.readouterr().err
 
 
+def test_serve_host_override_is_allowed_by_app(monkeypatch, tmp_path):
+    config_path = configure_cli(monkeypatch, tmp_path)
+    monkeypatch.setenv("PARQBRIDGE_CONFIG", str(config_path))
+    from fastapi.testclient import TestClient
+    import uvicorn
+
+    from app import main as main_module
+
+    started = {}
+
+    def run_stub(application, **kwargs):
+        started.update(app=application, **kwargs)
+        main_module.app.state.config = main_module._config_from_env()
+        assert main_module.app.state.config.server.host == kwargs["host"]
+        with TestClient(main_module.app, base_url=f"http://{kwargs['host']}:{kwargs['port']}") as client:
+            response = client.get("/api/status", headers={"host": f"{kwargs['host']}:{kwargs['port']}"})
+            assert response.status_code == 200
+
+    monkeypatch.setattr(uvicorn, "run", run_stub)
+    assert cli.main(["serve", "--host", "192.168.1.10", "--port", "8766", "--lang", "en"]) == 0
+    assert started == {"app": "app.main:app", "host": "192.168.1.10", "port": 8766}
+
+
 def test_load_insert_only_with_selected_columns_skips_create(monkeypatch, capsys, flat_parquet_path):
     configure_cli(monkeypatch, flat_parquet_path.parent, online=True)
     connection = FakeConnection()

@@ -17,7 +17,7 @@ from app.main import app
 
 def client_with(cfg) -> TestClient:
     app.state.config = cfg
-    return TestClient(app, base_url="http://127.0.0.1")
+    return TestClient(app, base_url="http://127.0.0.1:8765")
 
 
 def test_index_and_static(tmp_path):
@@ -66,7 +66,7 @@ def test_loopback_host_headers_are_accepted(tmp_path, host):
 
 
 def test_configured_allowed_host_is_accepted(tmp_path):
-    cfg = AppConfig(server=ServerConfig(host="0.0.0.0", allowed_hosts=("pb.lan",)))
+    cfg = AppConfig(server=ServerConfig(host="0.0.0.0", allowed_hosts=("pb.lan:8765",)))
     with client_with(cfg) as c:
         assert c.get("/api/status", headers={"host": "pb.lan:8765"}).status_code == 200
         assert c.get("/api/status", headers={"host": "0.0.0.0:8765"}).status_code == 403
@@ -75,11 +75,11 @@ def test_configured_allowed_host_is_accepted(tmp_path):
 def test_cross_site_origin_is_refused_for_state_changes(tmp_path):
     cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
     with client_with(cfg) as c:
-        for origin in ("http://evil.example", "null"):
+        for origin in ("http://evil.example", "http://127.0.0.1:3000", "null"):
             response = c.post("/api/jobs/missing/cancel", headers={"origin": origin})
             assert response.status_code == 403
             assert response.json()["error"]["code"] == "E_ORIGIN_NOT_ALLOWED"
-        # Same-origin posts and reads from another origin reach the route.
+        # Same-origin posts reach the route, while GET keeps its prior Origin behavior.
         assert c.post("/api/jobs/missing/cancel", headers={"origin": "http://127.0.0.1:8765"}).status_code == 404
         assert c.post("/api/jobs/missing/cancel").status_code == 404
         assert c.get("/api/status", headers={"origin": "http://evil.example"}).status_code == 200

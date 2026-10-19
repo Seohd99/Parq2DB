@@ -116,7 +116,7 @@ host = "0.0.0.0"
 port = 9000
 upload_max_mb = 10
 allowed_roots = [{json.dumps(str(root))}, {json.dumps(str(tmp_path / "nope"))}]
-allowed_hosts = [" pb.lan "]
+allowed_hosts = [" pb.lan:8765 "]
 [load]
 batch_size = 500
 """)
@@ -136,6 +136,7 @@ batch_size = 500
     '[server]\nallowed_roots = "D:/data"\n',
     '[server]\nallowed_hosts = "pb.lan"\n',
     '[server]\nallowed_hosts = [""]\n',
+    '[server]\nallowed_hosts = ["pb.lan:not-a-port"]\n',
     "[server\n",
 ])
 def test_invalid_config_raises(tmp_path, snippet):
