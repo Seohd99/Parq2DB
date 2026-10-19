@@ -334,3 +334,33 @@ renderFeedback = renderLoad = renderInsertControls = () => {};
         capture_output=True, text=True, encoding="utf-8", timeout=20,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_update_notice_shows_only_new_dismissable_releases_with_trusted_links():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node is unavailable for the JavaScript state test")
+    source = (Path(__file__).resolve().parents[1] / "app/static/app.js").read_text(encoding="utf-8")
+    source, startup = source.rsplit("\ninit();", 1)
+    assert not startup.strip()
+    checks = r"""
+const assert = require('node:assert/strict');
+const url = 'https://github.com/Seohd99/ParqBridge/releases/tag/v0.4.0';
+const available = {status: 'available', current_version: '0.3.0', latest_version: '0.4.0', release_url: url};
+assert.deepEqual(updateNotice(available, null), {latest: '0.4.0', current: '0.3.0', url});
+assert.equal(updateNotice(available, '0.4.0'), null);
+assert.deepEqual(updateNotice(available, '0.3.9'), {latest: '0.4.0', current: '0.3.0', url});
+for (const status of ['current', 'disabled', 'unavailable']) {
+  assert.equal(updateNotice({...available, status}, null), null);
+}
+assert.equal(updateNotice({...available, release_url: 'javascript:alert(1)'}, null), null);
+assert.equal(updateNotice({...available, release_url: 'https://evil.example/releases/tag/v0.4.0'}, null), null);
+assert.equal(updateNotice({...available, latest_version: ''}, null), null);
+assert.equal(updateNotice(null, null), null);
+"""
+    result = subprocess.run(
+        [node, "-"],
+        input="const document = { getElementById: () => ({}) };\n" + source + "\n" + checks,
+        capture_output=True, text=True, encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

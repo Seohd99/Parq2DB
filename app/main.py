@@ -31,6 +31,7 @@ from app.core.files import FileRegistry
 from app.core.hosts import allowed_host_names, request_rejection
 from app.core.jobs import LoadJobManager
 from app.core.string_scans import StringScanManager
+from app.core.updates import UpdateChecker
 
 log = logging.getLogger("parqbridge")
 
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI):
     app.state.files = FileRegistry(app.state.config.server.upload_dir, app.state.config.server.allowed_roots)
     app.state.jobs = LoadJobManager()
     app.state.string_scans = StringScanManager(max_workers=2)
+    app.state.updates = UpdateChecker(enabled=app.state.config.updates.check)
     try:
         yield
     finally:

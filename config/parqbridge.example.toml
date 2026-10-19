@@ -16,6 +16,9 @@ allowed_roots = ["D:\\data"]  # Windows example. macOS/Linux: ["/home/me/data"]
 batch_size = 10000
 child_max_depth = 3
 
+[updates]
+check = true  # Ask GitHub for a newer release when the web UI opens; false turns it off.
+
 # Without the following section, the database stays offline (inspection and DDL remain available).
 
 # [db.oracle]

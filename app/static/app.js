@@ -5,6 +5,9 @@ const I18N = { lang: "en", dict: {} };
 const LANG_KEY = "parqbridge.lang";
 const THEME_KEY = "parqbridge.theme";
 const WORK_TAB_KEY = "parqbridge.workTab";
+// The release version the user closed the update notice for; the notice returns for a later one.
+const UPDATE_DISMISS_KEY = "parqbridge.updateDismissed";
+const RELEASE_URL_PREFIX = "https://github.com/Seohd99/ParqBridge/releases/tag/";
 const WORK_TABS = ["explore", "insert", "create"];
 const TABLE_SUGGESTION_LIMIT = 50;
 let LANGUAGES = [];
@@ -41,6 +44,7 @@ const state = {
   browserBusy: false,
   selectionBusy: false,
   testingDb: {},
+  update: null,
 };
 
 function t(key, params = {}) {
@@ -1000,6 +1004,49 @@ function renderPreview() {
   document.getElementById("page-next").disabled = !preview.has_next;
 }
 
+function dismissedUpdate() {
+  try { return localStorage.getItem(UPDATE_DISMISS_KEY); } catch (_) { return null; }
+}
+
+// Decide whether to show the update notice; kept pure so it can be tested without a DOM.
+function updateNotice(update, dismissed) {
+  if (!update || update.status !== "available") return null;
+  const latest = update.latest_version;
+  const url = update.release_url;
+  if (typeof latest !== "string" || !latest || latest === dismissed) return null;
+  if (typeof url !== "string" || !url.startsWith(RELEASE_URL_PREFIX)) return null;
+  return { latest, current: String(update.current_version || ""), url };
+}
+
+function renderUpdate() {
+  const host = document.getElementById("update-notice");
+  const notice = updateNotice(state.update, dismissedUpdate());
+  host.hidden = !notice;
+  host.replaceChildren();
+  if (!notice) return;
+  host.append(
+    el("div", { class: "update-notice-body" },
+      el("strong", {}, t("update.title")),
+      el("p", {}, t("update.available", { latest: notice.latest, current: notice.current })),
+      el("p", { class: "muted" }, t("update.how_to")),
+      el("a", { href: notice.url, target: "_blank", rel: "noopener noreferrer" }, t("update.release_notes")),
+    ),
+    el("button", {
+      type: "button",
+      class: "update-dismiss",
+      "aria-label": t("update.dismiss"),
+      title: t("update.dismiss"),
+      "data-update-dismiss": notice.latest,
+    }, "×"),
+  );
+}
+
+async function checkForUpdate() {
+  // A failed check is not an error for the user; the notice simply stays hidden.
+  try { state.update = await api("/api/updates"); } catch (_) { state.update = null; }
+  renderUpdate();
+}
+
 function render() {
   renderUploadFileStatus();
   renderStatus();
@@ -1020,6 +1067,7 @@ function render() {
   renderLoad();
   renderInsertControls();
   renderActivity();
+  renderUpdate();
 }
 
 async function loadBrowser(path = null) {
@@ -1584,6 +1632,13 @@ async function init() {
   document.getElementById("ddl-columns-none").addEventListener("click", () => setAllColumnsSelected(false));
   document.getElementById("ddl-mode").addEventListener("change", updateDdlControls);
   document.getElementById("ddl-dialect").addEventListener("change", updateDdlControls);
+  document.getElementById("update-notice").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-update-dismiss]");
+    if (!button) return;
+    try { localStorage.setItem(UPDATE_DISMISS_KEY, button.dataset.updateDismiss); } catch (_) { /* Hide it for this page only. */ }
+    state.update = null;
+    renderUpdate();
+  });
   setWorkTab(savedWorkTab(), false);
   try { state.status = await api("/api/status"); } catch (error) { showError(error); }
   populateLanguageOptions(state.status?.languages || []);
@@ -1591,6 +1646,7 @@ async function init() {
   document.getElementById("lang").value = lang;
   await setLang(lang, false);
   if (state.workTab === "insert") void ensureInsertTables();
+  void checkForUpdate();
 }
 
 init();

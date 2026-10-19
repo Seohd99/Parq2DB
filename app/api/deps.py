@@ -11,6 +11,7 @@ from app.core.errors import PBError
 from app.core.files import FileRegistry, SelectedFile
 from app.core.jobs import LoadJobManager
 from app.core.string_scans import StringScanManager
+from app.core.updates import UpdateChecker
 
 
 def get_config(request: Request) -> AppConfig:
@@ -27,6 +28,10 @@ def get_jobs(request: Request) -> LoadJobManager:
 
 def get_string_scans(request: Request) -> StringScanManager:
     return request.app.state.string_scans
+
+
+def get_updates(request: Request) -> UpdateChecker:
+    return request.app.state.updates
 
 
 def get_or_start_length_scan(file_id: str, selected: SelectedFile, request: Request) -> dict:

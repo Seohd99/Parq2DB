@@ -208,6 +208,12 @@ button.entry:hover:not(:disabled) { border-color: var(--primary); background: va
 .selected-file { display: flex; align-items: center; justify-content: space-between; gap: 15px; min-width: 0; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 .selected-file > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
 .offline-help { overflow-wrap: anywhere; }
+.update-notice { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 20; display: flex; align-items: flex-start; gap: var(--space-3); width: min(360px, calc(100vw - 2 * var(--space-4))); padding: var(--space-3) var(--space-4); color: var(--fg); background: var(--surface); border: 1px solid var(--border-strong); border-left: 4px solid var(--primary); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgb(24 35 68 / 18%); }
+.update-notice[hidden] { display: none; }
+.update-notice-body { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; }
+.update-notice-body p { margin: 0; }
+.update-dismiss { flex: none; margin-left: auto; padding: 0 var(--space-2); font-size: 18px; line-height: 1.4; color: var(--muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.update-dismiss:hover { color: var(--fg); background: var(--surface-soft); }
 
 .metadata-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 155px), 1fr)); gap: 10px; min-width: 0; }
 .metadata-card { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 12px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: var(--radius-sm); }

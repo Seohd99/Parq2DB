@@ -64,6 +64,12 @@ class LoadConfig:
 
 
 @dataclass(frozen=True)
+class UpdatesConfig:
+    # Ask GitHub for a newer release when the web UI opens; see app/core/updates.py.
+    check: bool = True
+
+
+@dataclass(frozen=True)
 class DbProfile:
     kind: str
     host: str = ""
@@ -94,6 +100,7 @@ class DbProfile:
 class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     load: LoadConfig = field(default_factory=LoadConfig)
+    updates: UpdatesConfig = field(default_factory=UpdatesConfig)
     db: dict[str, DbProfile] = field(default_factory=dict)
     sources: tuple[str, ...] = ()
     warnings: tuple[dict[str, Any], ...] = ()
@@ -196,6 +203,11 @@ def _parse_load(raw: Mapping[str, Any], file: str) -> LoadConfig:
     )
 
 
+def _parse_updates(raw: Mapping[str, Any], file: str) -> UpdatesConfig:
+    d = UpdatesConfig()
+    return UpdatesConfig(check=_expect("updates", "check", raw.get("check", d.check), bool, file))
+
+
 def _parse_db(kind: str, raw: Mapping[str, Any] | None, env: Mapping[str, str]) -> DbProfile:
     if raw is None:
         return DbProfile(kind=kind, offline_reason="E_DB_NOT_CONFIGURED")
@@ -262,11 +274,12 @@ def load_config(
     file_label = " + ".join(sources) or "(defaults)"
     server = _parse_server(merged.get("server") or {}, file_label, warnings)
     load = _parse_load(merged.get("load") or {}, file_label)
+    updates = _parse_updates(merged.get("updates") or {}, file_label)
 
     db_raw = merged.get("db") or {}
     db = {kind: _parse_db(kind, db_raw.get(kind), env) for kind in SUPPORTED_DIALECTS}
 
-    cfg = AppConfig(server=server, load=load, db=db, sources=tuple(sources), warnings=tuple(warnings))
+    cfg = AppConfig(server=server, load=load, updates=updates, db=db, sources=tuple(sources), warnings=tuple(warnings))
     for kind, prof in db.items():
         log.info("db.%s: %s", kind, "online" if prof.online else f"offline ({prof.offline_reason})")
     for w in warnings:

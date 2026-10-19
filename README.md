@@ -147,6 +147,9 @@ allowed_roots = ["D:\\data"]
 [load]
 batch_size = 10000
 child_max_depth = 3
+
+[updates]
+check = true  # Set to false to turn off the GitHub release check.
 ```
 
 When using a database, fill in the relevant section with actual values. We recommend storing the password in the environment variable named by `password_env`.
@@ -482,6 +485,7 @@ The script outputs JSON with the selected file's size, row count and number of r
 - Keep `allowed_roots` limited to the folders you need. Path traversal and links pointing outside allowed roots are blocked.
 - Store passwords in environment variables or the gitignored `parqbridge.local.toml`. Do not record passwords or DSNs in logs, the UI, responses, or test fixtures.
 - Restarting the server clears selected file handles and job state held in memory. Closing the browser does not stop a running load job.
+- When the web UI opens, the server asks the GitHub releases API (`api.github.com`) for the latest ParqBridge release and, if it is newer, shows a notice at the bottom right with the release notes link and how to update. The request carries only a `ParqBridge/<version>` User-Agent, nothing about your files or databases; the answer is kept in memory for a day (an hour after a failure), and an offline or blocked network just shows no notice. Nothing is installed automatically. Set `[updates] check = false` to turn the check off; "Hide until the next version" is remembered per browser.
 
 ## Known limitations
 

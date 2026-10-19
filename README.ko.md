@@ -147,6 +147,9 @@ allowed_roots = ["D:\\data"]
 [load]
 batch_size = 10000
 child_max_depth = 3
+
+[updates]
+check = true  # false로 바꾸면 GitHub 릴리스 확인을 끕니다.
 ```
 
 DB를 사용할 때는 실제 값으로 해당 섹션을 채웁니다. 비밀번호는 `password_env`가 가리키는 환경변수에 두는 방식을 권장합니다.
@@ -482,6 +485,7 @@ UPDATE_GOLDEN=1 .venv/bin/python -m pytest -q tests/test_ddl.py
 - `allowed_roots`는 필요한 폴더로 좁히세요. 경로 탈출과 허용 루트 밖을 가리키는 링크는 차단됩니다.
 - 비밀번호는 환경변수 또는 gitignore된 `parqbridge.local.toml`에 둡니다. 비밀번호와 DSN을 로그, 화면, 응답, 테스트 fixture에 기록하지 마세요.
 - 서버를 재시작하면 메모리의 선택 파일 핸들과 작업 상태가 사라집니다. 브라우저를 닫아도 진행 중인 적재 작업은 중단되지 않습니다.
+- 웹 화면을 열면 서버가 GitHub 릴리스 API(`api.github.com`)에 최신 ParqBridge 릴리스를 묻고, 더 새 버전이 있으면 우측 하단에 릴리스 노트 링크와 업데이트 방법을 알림으로 보여 줍니다. 요청에는 `ParqBridge/<버전>` User-Agent만 담기며 파일이나 DB 정보는 보내지 않습니다. 결과는 메모리에 하루(실패하면 한 시간) 보관하고, 네트워크가 끊겼거나 막혀 있으면 알림을 띄우지 않습니다. 자동으로 설치하지는 않습니다. `[updates] check = false`로 확인을 끌 수 있고, "다음 버전까지 숨기기"는 브라우저별로 기억합니다.
 
 ## 알려진 제한
 

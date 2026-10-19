@@ -9,6 +9,7 @@ ParqBridge is a local web and CLI tool for inspecting one Parquet file, generati
 - `app/main.py`, `app/cli.py`: FastAPI web entry point (middleware, error handlers, static files) and command-line interface.
 - `app/api/`: API routers (`system.py`, `files.py`, `ddl.py`, `loads.py`), request schemas, shared state accessors, streaming upload parsing, and `planning.py`, the table planner and DDL builder shared by the web API and the CLI.
 - `app/core/config.py`, `files.py`: configuration, database profiles, file registration, uploads, and allowed-root checks.
+- `app/core/hosts.py`, `updates.py`: Host/Origin request checks, and the cached GitHub release check behind `GET /api/updates`.
 - `app/core/inspect.py`, `flatten.py`, `model.py`: Parquet inspection, preview and flatten plans, and shared table/column models.
 - `app/core/typemap.py`, `ddl_oracle.py`, `ddl_mysql.py`, `ddl_postgres.py`, `dialects.py`: type mapping, DDL emitters, and supported database dialects. See the **Main type mapping** section in `README.md` for the mapping table.
 - `app/core/db.py`, `load_oracle.py`, `load_mysql.py`, `load_postgres.py`, `jobs.py`: database connections, batch inserts, background load jobs, progress, cancellation, and row-count checks.
