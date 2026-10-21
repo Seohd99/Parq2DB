@@ -10,6 +10,9 @@ from pathlib import Path
 
 from app.core.errors import PBError
 
+# Extensions accepted for local-path selection and folder listings; content is still checked by magic bytes.
+PARQUET_SUFFIXES = frozenset({".parquet", ".pq", ".parq"})
+
 
 @dataclass(frozen=True)
 class SelectedFile:
@@ -100,7 +103,7 @@ class FileRegistry:
 
     def select_local(self, raw_path: str, allowed_roots: tuple[Path, ...]) -> SelectedFile:
         path = resolve_allowed_path(raw_path, allowed_roots)
-        if not path.is_file() or path.suffix.lower() != ".parquet":
+        if not path.is_file() or path.suffix.lower() not in PARQUET_SUFFIXES:
             raise PBError("E_PARQUET_INVALID")
         validate_parquet_magic(path)
         selected = SelectedFile(uuid.uuid4().hex, path, path.name, "local")
@@ -194,7 +197,7 @@ def list_allowed_directory(raw_path: str, allowed_roots: tuple[Path, ...]) -> di
                 continue
             if resolved.is_dir():
                 entries.append({"name": child.name, "path": str(resolved), "kind": "directory", "size": None})
-            elif resolved.is_file() and child.suffix.lower() == ".parquet":
+            elif resolved.is_file() and child.suffix.lower() in PARQUET_SUFFIXES:
                 entries.append({"name": child.name, "path": str(resolved), "kind": "file", "size": resolved.stat().st_size})
         except (OSError, RuntimeError):
             # Exclude missing entries and links that point outside the root.

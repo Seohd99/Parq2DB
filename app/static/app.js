@@ -540,11 +540,44 @@ function renderLoad() {
   renderJobs();
 }
 
+// Local receipt time of each job snapshot, so the elapsed time can tick between polls.
+const jobReceivedAt = new WeakMap();
+let jobElapsedShown = { jobId: null, seconds: 0 };
+let jobElapsedTimer = null;
+
+function isActiveJob(job) {
+  return ["queued", "running"].includes(job?.status);
+}
+
+function jobElapsedText(job) {
+  if (!jobReceivedAt.has(job)) jobReceivedAt.set(job, performance.now());
+  const active = isActiveJob(job);
+  const sinceSnapshot = active ? (performance.now() - jobReceivedAt.get(job)) / 1000 : 0;
+  let seconds = Math.floor((job.elapsed_seconds || 0) + sinceSnapshot);
+  // A newer snapshot can trail the local estimate by the request latency; never count down.
+  if (active && jobElapsedShown.jobId === job.job_id) seconds = Math.max(seconds, jobElapsedShown.seconds);
+  jobElapsedShown = { jobId: job.job_id, seconds };
+  return t("load.elapsed", { seconds: formatNumber(seconds) });
+}
+
+function tickJobElapsed() {
+  if (!isActiveJob(state.job)) {
+    window.clearInterval(jobElapsedTimer);
+    jobElapsedTimer = null;
+    return;
+  }
+  const text = jobElapsedText(state.job);
+  for (const node of document.querySelectorAll("[data-job-elapsed]")) node.textContent = text;
+}
+
 function renderJobs() {
   for (const origin of ["create", "insert"]) {
     const root = document.getElementById(`${origin}-job`);
     const job = state.jobOrigin === origin ? state.job : null;
     root.replaceChildren(...(job ? [jobView(job)] : []));
+  }
+  if (isActiveJob(state.job) && jobElapsedTimer === null) {
+    jobElapsedTimer = window.setInterval(tickJobElapsed, 250);
   }
 }
 
@@ -581,7 +614,7 @@ function jobView(job) {
   return el("div", { class: "load-job" },
     el("div", { class: "section-heading load-job-heading" },
       el("strong", {}, t(`load.status.${job.status}`)),
-      el("span", { class: "muted" }, t("load.elapsed", { seconds: job.elapsed_seconds })),
+      el("span", { class: "muted", "data-job-elapsed": "" }, jobElapsedText(job)),
       active ? el("button", { type: "button", class: "danger-button job-cancel", "data-job-cancel": job.job_id }, t("load.cancel")) : null,
     ),
     active ? el("p", { class: "muted" }, stage) : null,

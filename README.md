@@ -305,7 +305,7 @@ uv provides the `parq2db` command automatically. In a pip-managed environment, y
 
 ## Usage flow
 
-1. Choose or drop a `.parquet` file in the Upload tab, then click **Upload and open** (enabled after selecting a file). Alternatively, browse an allowed folder in the Local path tab.
+1. Choose or drop a `.parquet` (or `.pq`, `.parq`) file in the Upload tab, then click **Upload and open** (enabled after selecting a file). Alternatively, browse an allowed folder in the Local path tab.
 2. Pick a task tab. The choice is remembered in this browser.
    - **Explore the file**: review the metadata, column statistics, schema, flat/nested classification, and paged row preview.
    - **INSERT into an existing table**: choose the target database and table (table names in the current schema are fetched once and filtered as you type), click **Check table**, review how file columns match table columns, and run INSERT. No DDL is generated and no string-length scan is awaited. See [INSERT into an existing table](#insert-into-an-existing-table).

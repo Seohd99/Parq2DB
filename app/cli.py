@@ -24,7 +24,7 @@ from typing import Any, Sequence
 from app.core.config import AppConfig, load_config
 from app.core.dialects import DIALECT_LABELS, SUPPORTED_DIALECTS
 from app.core.errors import PBError, dedupe_warnings, warning
-from app.core.files import SelectedFile, resolve_allowed_path, validate_parquet_magic
+from app.core.files import PARQUET_SUFFIXES, SelectedFile, resolve_allowed_path, validate_parquet_magic
 from app.core.inspect import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, inspect_parquet, preview_parquet
 from app.core.languages import default_language, language_code_for_locale, language_codes
 
@@ -130,7 +130,7 @@ def _print_warnings(items: Sequence[dict[str, Any]], lang: str) -> None:
 
 def _selected_file(raw_path: str, config: AppConfig) -> SelectedFile:
     path = resolve_allowed_path(raw_path, config.server.allowed_roots)
-    if path.suffix.lower() != ".parquet":
+    if path.suffix.lower() not in PARQUET_SUFFIXES:
         raise PBError("E_PARQUET_INVALID")
     validate_parquet_magic(path)
     return SelectedFile("cli", path, path.name, "local")
@@ -278,7 +278,7 @@ def _write_ddl_output(output: str, input_path: Path, ddl: str, *, force: bool) -
             raise PBError("E_DDL_OUTPUT_PROTECTED", path=output) from None
     if same_input:
         raise PBError("E_DDL_OUTPUT_PROTECTED", path=output)
-    if requested_path.suffix.casefold() == ".parquet" or output_path.suffix.casefold() == ".parquet":
+    if requested_path.suffix.casefold() in PARQUET_SUFFIXES or output_path.suffix.casefold() in PARQUET_SUFFIXES:
         raise PBError("E_DDL_OUTPUT_PROTECTED", path=output)
 
     if output_path.exists():

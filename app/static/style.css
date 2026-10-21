@@ -246,8 +246,9 @@ td { max-width: 480px; overflow-wrap: anywhere; }
 .ddl-options input[type="text"], .ddl-options select { width: 100%; min-width: 0; }
 .ddl-options label.check-option { display: flex; align-items: center; gap: 8px; padding-top: 22px; color: var(--fg); }
 .ddl-options label.check-option input { margin: 0; }
-.ddl-result-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; min-width: 0; margin-top: 12px; }
-.ddl-result-tools h3, #ddl-mappings h3 { margin: 0 0 9px; font-size: 14px; }
+.ddl-result-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; min-width: 0; margin: 12px 0 10px; }
+.ddl-result-tools h3 { margin: 0; font-size: 14px; }
+#ddl-mappings h3 { margin: 0 0 9px; font-size: 14px; }
 .button-row { display: flex; flex-wrap: wrap; gap: 7px; }
 .flatten-previews { display: grid; gap: 12px; margin-top: 14px; }
 .flatten-preview { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }

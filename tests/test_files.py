@@ -279,6 +279,23 @@ def test_uploaded_file_can_be_inspected_previewed_and_deleted(tmp_path, parquet_
         assert not path.exists()
 
 
+def test_local_path_accepts_short_parquet_extensions_and_hides_others(tmp_path, parquet_path):
+    root = tmp_path / "allowed"
+    root.mkdir()
+    for name in ("short.pq", "short.PARQ", "notes.txt"):
+        (root / name).write_bytes(parquet_path.read_bytes())
+    app.state.config = configured(tmp_path, (root,))
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        listing = client.get("/api/files/browse", params={"path": str(root)}).json()
+        assert {entry["name"] for entry in listing["entries"]} == {"short.pq", "short.PARQ"}
+
+        for name in ("short.pq", "short.PARQ"):
+            selected = client.post("/api/files/local", json={"path": str(root / name)})
+            assert selected.status_code == 200
+        rejected = client.post("/api/files/local", json={"path": str(root / "notes.txt")})
+        assert error_code(rejected) == "E_PARQUET_INVALID"
+
+
 def test_local_path_and_browse_reject_escape_and_allow_in_root_file(tmp_path, parquet_path):
     root = tmp_path / "allowed"
     root.mkdir()
