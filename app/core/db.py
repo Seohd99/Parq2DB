@@ -125,6 +125,9 @@ def connect(profile: DbProfile):
                 cursor = connection.cursor()
                 try:
                     cursor.execute("SELECT set_config('search_path', %s, false)", (schema_identifier,))
+                    # A session setting made inside a transaction reverts on ROLLBACK, so commit it
+                    # now; otherwise the COPY fallback's rollback would send INSERTs to another schema.
+                    connection.commit()
                 except Exception:
                     close_quietly(connection)
                     raise

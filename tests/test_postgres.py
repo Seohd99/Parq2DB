@@ -214,6 +214,9 @@ def test_postgres_connection_uses_psycopg_and_sets_schema(monkeypatch):
         def cursor(self):
             return Cursor()
 
+        def commit(self):
+            executed.append(("COMMIT", None))
+
     connection = Connection()
 
     def fake_connect(**kwargs):
@@ -230,7 +233,10 @@ def test_postgres_connection_uses_psycopg_and_sets_schema(monkeypatch):
         "password": "synthetic test value",
         "autocommit": False,
     }
-    assert executed == [("SELECT set_config('search_path', %s, false)", ('"data""set"',))]
+    assert executed == [
+        ("SELECT set_config('search_path', %s, false)", ('"data""set"',)),
+        ("COMMIT", None),
+    ]
 
 
 class _FakePgError(Exception):
@@ -404,6 +410,241 @@ def test_postgres_copy_text_rows_escape_control_characters():
     row = ("한글\\x", "a\tb\nc", None, Decimal("12.34"), True, '{"k":"v"}')
     _copy_base.format_row_text(row, Transformer(), out)
     assert bytes(out).decode("utf-8") == '한글\\\\x\ta\\tb\\nc\t\\N\t12.34\tt\t{"k":"v"}\n'
+
+
+class _FakeUndefinedTable(Exception):
+    sqlstate = "42P01"
+
+
+class _FakeInFailedTransaction(Exception):
+    sqlstate = "25P02"
+
+
+class _FakeCheckViolation(Exception):
+    sqlstate = "23514"
+
+
+class _TxPgServer:
+    """Committed tables keyed by (schema, name); `rls` tables refuse COPY FROM like PostgreSQL."""
+
+    def __init__(self, tables: dict[tuple[str, str], bool]):
+        self.tables = {key: {"rls": rls, "rows": []} for key, rls in tables.items()}
+
+    def rows(self, schema: str, name: str) -> list[tuple]:
+        return self.tables[(schema, name)]["rows"]
+
+
+class _TxPgConnection:
+    """Model the PostgreSQL transaction rules the load path depends on.
+
+    `set_config(..., false)` reverts on ROLLBACK (or ROLLBACK TO an earlier savepoint)
+    unless its transaction committed, rows become visible only on COMMIT, and a failed
+    statement aborts the transaction until it is rolled back.
+    """
+
+    def __init__(self, server: _TxPgServer):
+        self.server = server
+        self.search_path = "public"
+        self.in_transaction = False
+        self.search_path_at_begin = None
+        self.pending = []
+        self.savepoints = []
+        self.aborted = False
+        self.closed = False
+
+    def cursor(self):
+        return _TxPgCursor(self)
+
+    def statement(self):
+        if not self.in_transaction:
+            self.in_transaction = True
+            self.search_path_at_begin = self.search_path
+        if self.aborted:
+            raise _FakeInFailedTransaction("synthetic failure text")
+
+    def fail(self, error):
+        self.aborted = True
+        raise error
+
+    def resolve(self, sql_name: str) -> tuple[str, str]:
+        key = (self.search_path, sql_name.lower())
+        if key not in self.server.tables:
+            self.fail(_FakeUndefinedTable("synthetic failure text"))
+        return key
+
+    def rollback_to(self, name: str):
+        index = next(i for i, point in reversed(list(enumerate(self.savepoints))) if point[0] == name)
+        _name, pending, search_path = self.savepoints[index]
+        del self.pending[pending:]
+        self.search_path = search_path
+        self.savepoints = self.savepoints[: index + 1]
+        self.aborted = False
+
+    def release(self, name: str):
+        index = next(i for i, point in reversed(list(enumerate(self.savepoints))) if point[0] == name)
+        self.savepoints = self.savepoints[:index]
+
+    def commit(self):
+        if self.aborted:
+            # PostgreSQL ends an aborted transaction with ROLLBACK even when asked to COMMIT.
+            self.rollback()
+            return
+        for key, row in self.pending:
+            self.server.tables[key]["rows"].append(row)
+        self._end()
+
+    def rollback(self):
+        if self.in_transaction:
+            self.search_path = self.search_path_at_begin
+        self._end()
+
+    def _end(self):
+        self.in_transaction = False
+        self.pending = []
+        self.savepoints = []
+        self.aborted = False
+
+    def close(self):
+        self.closed = True
+
+
+class _TxPgCopy:
+    def __init__(self, cursor, key):
+        self.cursor = cursor
+        self.key = key
+        self.rows = []
+
+    def __enter__(self):
+        return self
+
+    def write_row(self, row):
+        self.rows.append(tuple(row))
+
+    def __exit__(self, exc_type, *_):
+        if exc_type is None:
+            self.cursor.connection.pending.extend((self.key, row) for row in self.rows)
+            self.cursor.rowcount = len(self.rows)
+
+
+class _TxPgCursor:
+    def __init__(self, connection: _TxPgConnection):
+        self.connection = connection
+        self.rowcount = -1
+
+    def execute(self, sql, params=None):
+        connection = self.connection
+        words = sql.split()
+        if words[:2] == ["ROLLBACK", "TO"]:
+            connection.rollback_to(words[-1])
+            return
+        connection.statement()
+        if sql.startswith("SELECT set_config('search_path'"):
+            connection.search_path = params[0].strip('"')
+        elif words[0] == "SAVEPOINT":
+            connection.savepoints.append((words[1], len(connection.pending), connection.search_path))
+        elif words[0] == "RELEASE":
+            connection.release(words[-1])
+        elif words[0] == "INSERT":
+            key = connection.resolve(words[2])
+            if params[1] == "bad":
+                connection.fail(_FakeCheckViolation("synthetic failure text"))
+            connection.pending.append((key, tuple(params)))
+        else:
+            raise AssertionError(f"unexpected SQL: {sql}")
+
+    def executemany(self, sql, rows):
+        rows = list(rows)
+        for row in rows:
+            self.execute(sql, row)
+        self.rowcount = len(rows)
+
+    def copy(self, sql):
+        connection = self.connection
+        connection.statement()
+        key = connection.resolve(sql.split()[1])
+        if connection.server.tables[key]["rls"]:
+            connection.fail(_FakeCopyUnsupported("synthetic failure text"))
+        return _TxPgCopy(self, key)
+
+    def close(self):
+        pass
+
+
+def _run_schema_load(monkeypatch, server, batches, existing_policy):
+    """Run the real connect() + execute_load() + insert_batch() against one fake session."""
+    connection = _TxPgConnection(server)
+    monkeypatch.setattr(db.psycopg, "connect", lambda **_kwargs: connection)
+    monkeypatch.setattr(
+        jobs,
+        "table_exists",
+        lambda _connection, profile, name, **_kwargs: (profile.schema, name.lower()) in server.tables,
+    )
+    monkeypatch.setattr(jobs, "table_columns", lambda *_args, **_kwargs: {"id", "payload"})
+    monkeypatch.setattr(jobs, "_expected_rows", lambda *_args: sum(batch.num_rows for batch in batches))
+    monkeypatch.setattr(jobs, "_stream_batches", lambda *_args: iter(batches))
+
+    def run():
+        return execute_load(
+            path=Path("unused.parquet"),
+            tables=_table(name="PB_TEST_RLS"),
+            profile=_profile("analytics"),
+            source_rows=sum(batch.num_rows for batch in batches),
+            batch_size=2,
+            existing_policy=existing_policy,
+            cancel_event=Event(),
+            progress=lambda *_args: None,
+        )
+
+    return connection, run
+
+
+def test_postgres_connect_commits_schema_so_rollback_keeps_it(monkeypatch):
+    connection = _TxPgConnection(_TxPgServer({}))
+    monkeypatch.setattr(db.psycopg, "connect", lambda **_kwargs: connection)
+    assert connect(_profile("analytics")) is connection
+    connection.cursor().execute("SAVEPOINT PB_TEST_ANY")
+    connection.rollback()
+    assert connection.search_path == "analytics"
+
+
+@pytest.mark.parametrize("existing_policy", ["append", "insert_only"])
+def test_postgres_copy_fallback_inserts_into_configured_schema(monkeypatch, existing_policy):
+    # A same-named table in public must not receive rows after the first COPY refusal rolls back.
+    server = _TxPgServer({("analytics", "pb_test_rls"): True, ("public", "pb_test_rls"): False})
+    batches = [_batch([1, 2], ["one", "two"]), _batch([3, 4], ["three", "four"])]
+    connection, run = _run_schema_load(monkeypatch, server, batches, existing_policy)
+
+    result = run()
+
+    assert result["committed_rows"] == 4
+    assert result["preparation_changes_applied"] is False
+    assert result["tables"][0]["matched"] is True
+    assert server.rows("analytics", "pb_test_rls") == [(1, "one"), (2, "two"), (3, "three"), (4, "four")]
+    assert server.rows("public", "pb_test_rls") == []
+    assert connection.search_path == "analytics"
+    assert connection.closed
+
+
+def test_postgres_copy_fallback_failure_diagnosis_uses_configured_schema(monkeypatch):
+    # Without the schema the fallback and diagnosis would hit 42P01 and blame row 1 of batch 1.
+    server = _TxPgServer({("analytics", "pb_test_rls"): True})
+    batches = [_batch([1, 2], ["one", "two"]), _batch([3, 4], ["three", "bad"])]
+    _connection, run = _run_schema_load(monkeypatch, server, batches, "append")
+
+    with pytest.raises(PBError) as failure:
+        run()
+
+    assert failure.value.code == "E_LOAD_FAILED"
+    assert failure.value.params == {
+        "table": "PB_TEST_RLS",
+        "batch_index": 2,
+        "row_index": 4,
+        "row_index_scope": "table",
+        "committed_batches": 1,
+        "committed_rows": 2,
+        "driver_code": "23514",
+    }
+    assert server.rows("analytics", "pb_test_rls") == [(1, "one"), (2, "two")]
 
 
 def _patch_fake_db(monkeypatch, *, exists=False, columns=()):
