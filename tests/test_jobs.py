@@ -441,9 +441,10 @@ def test_job_manager_prevents_overlapping_table_jobs(monkeypatch, tmp_path):
         return {"tables": [], "committed_batches": 0, "committed_rows": 0}
 
     monkeypatch.setattr(jobs, "execute_load", hold_job)
+    finished = []
     manager = LoadJobManager(max_workers=1)
     try:
-        manager.submit(
+        first = manager.submit(
             path=tmp_path / "unused.parquet",
             tables=[table],
             profile=online_profile(),
@@ -451,6 +452,7 @@ def test_job_manager_prevents_overlapping_table_jobs(monkeypatch, tmp_path):
             batch_size=10,
             existing_policy="fail",
             confirm_table_name=None,
+            on_finish=lambda: finished.append("first"),
         )
         assert started.wait(1)
         with pytest.raises(PBError) as caught:
@@ -462,11 +464,20 @@ def test_job_manager_prevents_overlapping_table_jobs(monkeypatch, tmp_path):
                 batch_size=10,
                 existing_policy="fail",
                 confirm_table_name=None,
+                on_finish=lambda: finished.append("refused"),
             )
         assert caught.value.code == "E_JOB_CONFLICT"
+        # A refused job releases what its caller holds at once; a running job keeps it.
+        assert finished == ["refused"]
+        release.set()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and manager.get(first["job_id"])["status"] == "running":
+            time.sleep(0.01)
     finally:
         release.set()
         manager.shutdown()
+    assert manager.get(first["job_id"])["status"] == "succeeded"
+    assert finished == ["refused", "first"]
 
 
 def test_cancel_during_preparation_reports_cancelled(monkeypatch, flat_parquet_path):

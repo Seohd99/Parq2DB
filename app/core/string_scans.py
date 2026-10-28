@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,6 +82,21 @@ class StringScanManager:
             record.future = self._executor.submit(self._run, record, resolved, schema)
             return self._snapshot(record)
 
+    def hold(self, file_id: str) -> str:
+        """Give a background job its own handle on a selection's scan.
+
+        The handle keeps the shared scan alive after the selection is released;
+        pass it to `wait()` and give it back with `release()` when the job ends.
+        """
+        with self._condition:
+            record = self._by_file.get(file_id)
+            if record is None or record.status == "cancelled":
+                raise PBError("E_STRING_SCAN_CANCELLED")
+            handle = f"hold:{uuid.uuid4().hex}"
+            record.file_ids.add(handle)
+            self._by_file[handle] = record
+            return handle
+
     def state(self, file_id: str) -> dict[str, Any]:
         with self._condition:
             record = self._by_file.get(file_id)
@@ -122,7 +138,7 @@ class StringScanManager:
                 self._condition.wait(timeout=0.1)
 
     def release(self, file_id: str, *, wait: bool = False, timeout: float = 30.0) -> None:
-        """Drop one selection's interest and cancel an unshared scan if it is active."""
+        """Drop one selection's or job's interest and cancel an unshared scan if it is active."""
         future: Future | None = None
         with self._condition:
             record = self._by_file.pop(file_id, None)

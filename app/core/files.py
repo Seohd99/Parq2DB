@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ntpath
 import os
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,9 @@ class FileRegistry:
         self.upload_dir = requested.resolve(strict=True)
         self.allowed_roots = allowed_roots
         self._files: dict[str, SelectedFile] = {}
+        # Background jobs that read a file hold it so its upload cannot be deleted under them.
+        self._holds: dict[str, int] = {}
+        self._holds_lock = threading.Lock()
 
     def get(self, file_id: str) -> SelectedFile:
         selected = self._files.get(file_id)
@@ -116,6 +120,23 @@ class FileRegistry:
         if selected is not None and selected.source == "local":
             del self._files[file_id]
 
+    def hold(self, file_id: str) -> None:
+        """Mark a file as read by a background job until `release_hold()`."""
+        with self._holds_lock:
+            self._holds[file_id] = self._holds.get(file_id, 0) + 1
+
+    def release_hold(self, file_id: str) -> None:
+        with self._holds_lock:
+            remaining = self._holds.get(file_id, 0) - 1
+            if remaining > 0:
+                self._holds[file_id] = remaining
+            else:
+                self._holds.pop(file_id, None)
+
+    def in_use(self, file_id: str) -> bool:
+        with self._holds_lock:
+            return file_id in self._holds
+
     def begin_upload(self, filename: str | None, max_bytes: int) -> StreamingUpload:
         """Open a safe temporary upload for a validated multipart file part."""
         return StreamingUpload(self, filename, max_bytes)
@@ -135,8 +156,11 @@ class FileRegistry:
             or selected.path.is_symlink()
         ):
             raise PBError("E_PATH_NOT_ALLOWED")
-        selected.path.unlink()
-        del self._files[file_id]
+        with self._holds_lock:
+            if file_id in self._holds:
+                raise PBError("E_FILE_IN_USE")
+            selected.path.unlink()
+            del self._files[file_id]
 
 
 def resolve_allowed_path(raw_path: str | os.PathLike[str], allowed_roots: tuple[Path, ...]) -> Path:

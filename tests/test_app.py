@@ -357,6 +357,205 @@ def test_load_reports_background_string_scan_failure(tmp_path, parquet_path, mon
             c.delete(f"/api/files/{file_id}")
 
 
+def test_scan_hold_keeps_shared_scan_until_last_interest(monkeypatch, parquet_path):
+    started = threading.Event()
+    finish = threading.Event()
+    cancel_events = []
+
+    def blocked_scan(_path, _schema, **kwargs):
+        cancel_events.append(kwargs["cancel_event"])
+        started.set()
+        while not finish.wait(0.01):
+            if kwargs["cancel_event"].is_set():
+                raise PBError("E_STRING_SCAN_CANCELLED")
+        return StringLengthMeasurements({"name": StringLength(3, 3)})
+
+    monkeypatch.setattr("app.core.string_scans.measure_string_lengths", blocked_scan)
+    manager = StringScanManager(max_workers=1)
+    try:
+        with pytest.raises(PBError) as missing:
+            manager.hold("never-selected")
+        assert missing.value.code == "E_STRING_SCAN_CANCELLED"
+
+        manager.start("first-handle", parquet_path)
+        manager.start("second-handle", parquet_path)
+        assert started.wait(1)
+        handle = manager.hold("first-handle")
+        manager.release("first-handle")
+        manager.release("second-handle")
+        assert len(cancel_events) == 1
+        assert not cancel_events[0].is_set()
+
+        finish.set()
+        assert manager.wait(handle, threading.Event())["name"] == StringLength(3, 3)
+        manager.release(handle)
+        assert manager._by_file == {}
+        assert manager._by_key == {}
+    finally:
+        finish.set()
+        manager.shutdown()
+
+
+def _held_load_client(tmp_path, monkeypatch):
+    """Upload-ready client whose full scan waits for `finish_scan` and whose DB load is faked."""
+    from app.core import jobs, typemap
+
+    profile = DbProfile(
+        kind="mysql",
+        host="db.invalid",
+        port=3306,
+        target="unit_test",
+        user="unit_test_user",
+        password="UNIT_TEST_ONLY_SECRET",
+    )
+    cfg = AppConfig(server=ServerConfig(upload_dir=tmp_path / "uploads"), db={"mysql": profile})
+    events = {"scan_started": threading.Event(), "finish_scan": threading.Event(), "finish_load": threading.Event()}
+    events["finish_load"].set()
+    scan_cancel_events = []
+    loaded_types = []
+    real_measure = typemap.measure_string_lengths
+
+    def delayed_measure(path, schema, **kwargs):
+        scan_cancel_events.append(kwargs["cancel_event"])
+        events["scan_started"].set()
+        while not events["finish_scan"].wait(0.01):
+            if kwargs["cancel_event"].is_set():
+                raise PBError("E_STRING_SCAN_CANCELLED")
+        return real_measure(path, schema, **kwargs)
+
+    def fake_execute_load(**kwargs):
+        assert events["finish_load"].wait(3)
+        assert kwargs["path"].is_file()
+        loaded_types.append(kwargs["tables"][0].columns[0].sql_type_mysql)
+        return {"tables": [], "committed_batches": 0, "committed_rows": 0}
+
+    monkeypatch.setattr("app.core.string_scans.measure_string_lengths", delayed_measure)
+    monkeypatch.setattr(jobs, "execute_load", fake_execute_load)
+    return client_with(cfg), events, scan_cancel_events, loaded_types
+
+
+def _upload(c, path, name):
+    uploaded = c.post("/api/files/upload", files={"file": (name, path.read_bytes(), "application/octet-stream")})
+    assert uploaded.status_code == 200, uploaded.text
+    return uploaded.json()["file"]["file_id"]
+
+
+def _wait_job(c, job_id):
+    deadline = time.monotonic() + 3
+    job = c.get(f"/api/jobs/{job_id}").json()
+    while time.monotonic() < deadline and job["status"] in {"queued", "running"}:
+        time.sleep(0.01)
+        job = c.get(f"/api/jobs/{job_id}").json()
+    return job
+
+
+def test_selecting_another_file_keeps_submitted_load_scan(tmp_path, monkeypatch):
+    path = tmp_path / "held.parquet"
+    pq.write_table(pa.table({"comment": ["x", "y" * 500]}), path)
+    other = tmp_path / "other.parquet"
+    pq.write_table(pa.table({"comment": ["z"]}), other)
+    client, events, scan_cancel_events, loaded_types = _held_load_client(tmp_path, monkeypatch)
+    with client as c:
+        scans = c.app.state.string_scans
+        file_id = _upload(c, path, "held.parquet")
+        assert events["scan_started"].wait(1)
+        response = c.post(f"/api/files/{file_id}/load", json={"dialect": "mysql", "table_name": "PB_TEST_HELD"})
+        assert response.status_code == 200, response.text
+        job_id = response.json()["job_id"]
+
+        # The UI selects the next file and releases this one while the job still measures.
+        other_id = _upload(c, other, "other.parquet")
+        assert c.post(f"/api/files/{file_id}/release").status_code == 200
+        assert c.get(f"/api/jobs/{job_id}").json()["stage"] == "measuring"
+        assert not scan_cancel_events[0].is_set()
+
+        events["finish_scan"].set()
+        job = _wait_job(c, job_id)
+        assert job["status"] == "succeeded", job
+        assert loaded_types == ["VARCHAR(500)"]
+        # The job's handle is returned; only the other selection's scan remains.
+        assert set(scans._by_file) == {other_id}
+        assert len(scans._by_key) == 1
+        assert c.delete(f"/api/files/{file_id}").status_code == 200
+        c.delete(f"/api/files/{other_id}")
+
+
+def test_cancelling_load_after_release_cancels_its_unshared_scan(tmp_path, monkeypatch):
+    path = tmp_path / "cancel-held.parquet"
+    pq.write_table(pa.table({"comment": ["x"]}), path)
+    client, events, scan_cancel_events, loaded_types = _held_load_client(tmp_path, monkeypatch)
+    with client as c:
+        scans = c.app.state.string_scans
+        file_id = _upload(c, path, "cancel-held.parquet")
+        assert events["scan_started"].wait(1)
+        job_id = c.post(
+            f"/api/files/{file_id}/load", json={"dialect": "mysql", "table_name": "PB_TEST_CANCEL_HELD"},
+        ).json()["job_id"]
+        assert c.post(f"/api/files/{file_id}/release").status_code == 200
+        assert not scan_cancel_events[0].is_set()
+
+        assert c.post(f"/api/jobs/{job_id}/cancel").status_code == 200
+        job = _wait_job(c, job_id)
+        assert job["status"] == "cancelled", job
+        assert loaded_types == []
+        # The job's handle was the last interest, so ending the job cancels and drops the scan.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and scans._by_file:
+            time.sleep(0.01)
+        assert scan_cancel_events[0].is_set()
+        assert scans._by_file == {}
+        assert scans._by_key == {}
+        assert c.delete(f"/api/files/{file_id}").status_code == 200
+
+
+def test_upload_used_by_load_job_cannot_be_deleted_until_job_ends(tmp_path, monkeypatch):
+    path = tmp_path / "in-use.parquet"
+    pq.write_table(pa.table({"comment": ["x"]}), path)
+    client, events, _scan_cancel_events, loaded_types = _held_load_client(tmp_path, monkeypatch)
+    events["finish_load"].clear()
+    with client as c:
+        file_id = _upload(c, path, "in-use.parquet")
+        job_id = c.post(
+            f"/api/files/{file_id}/load", json={"dialect": "mysql", "table_name": "PB_TEST_IN_USE"},
+        ).json()["job_id"]
+
+        refused = c.delete(f"/api/files/{file_id}")
+        assert refused.status_code == 409
+        assert refused.json()["error"]["code"] == "E_FILE_IN_USE"
+        # A refused delete leaves the selection and its scan intact.
+        assert c.get(f"/api/files/{file_id}/length-scan").status_code == 200
+        assert c.get(f"/api/files/{file_id}/inspect").status_code == 200
+
+        events["finish_scan"].set()
+        events["finish_load"].set()
+        assert _wait_job(c, job_id)["status"] == "succeeded"
+        assert loaded_types == ["VARCHAR(1)"]
+        assert c.delete(f"/api/files/{file_id}").status_code == 200
+        assert list((tmp_path / "uploads").iterdir()) == []
+
+
+def test_upload_used_by_insert_job_cannot_be_deleted_until_job_ends(tmp_path, monkeypatch, parquet_path):
+    from app.api import loads
+    from app.core.model import ColumnModel, TableModel
+
+    model = TableModel(name="PB_TEST_INSERT_HELD", columns=(ColumnModel("x", "x", "X", None, "int"),))
+    monkeypatch.setattr(loads, "inspect_insert_target", lambda *_args: (model, {"warnings": []}, 1))
+    client, events, _scan_cancel_events, _loaded_types = _held_load_client(tmp_path, monkeypatch)
+    events["finish_scan"].set()
+    events["finish_load"].clear()
+    with client as c:
+        file_id = _upload(c, parquet_path, "insert-held.parquet")
+        response = c.post(
+            f"/api/files/{file_id}/insert", json={"dialect": "mysql", "table_name": "PB_TEST_INSERT_HELD"},
+        )
+        assert response.status_code == 200, response.text
+        assert c.delete(f"/api/files/{file_id}").json()["error"]["code"] == "E_FILE_IN_USE"
+
+        events["finish_load"].set()
+        assert _wait_job(c, response.json()["job_id"])["status"] == "succeeded"
+        assert c.delete(f"/api/files/{file_id}").status_code == 200
+
+
 def test_database_apis_reject_offline_profiles_with_409(tmp_path):
     cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
     with client_with(cfg) as c:

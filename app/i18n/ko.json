@@ -212,6 +212,7 @@
   "error.E_JOB_NOT_FOUND": "적재 작업을 찾지 못했습니다.",
   "error.E_JOB_CONFLICT": "{table} 또는 자식 테이블에 다른 적재 작업이 진행 중입니다.",
   "error.E_STRING_SCAN_FAILED": "문자열 길이 전체 측정에 실패했습니다.",
+  "error.E_FILE_IN_USE": "적재 작업이 아직 이 파일을 읽고 있습니다. 작업이 끝나거나 취소된 뒤 삭제하세요.",
   "error.E_STRING_SCAN_CANCELLED": "문자열 길이 측정이 취소되었거나 파일 선택이 해제되었습니다.",
   "error.E_LOCAL_INFILE_UNAVAILABLE": "LOAD DATA LOCAL INFILE을 사용할 수 없습니다. 배치 INSERT를 사용하세요.",
   "error.E_POSTGRES_NUL_CHARACTER": "PostgreSQL의 텍스트/JSON 값에는 NUL 문자를 저장할 수 없습니다. {table}.{column}, {batch_index}번째 배치의 {row_index_scope} 기준 {row_index}번째 행을 확인하세요. 커밋된 배치 {committed_batches}개와 행 {committed_rows}개는 유지됩니다.",

@@ -21,7 +21,8 @@ def queue_load(file_id: str, options: LoadOptions, request: Request) -> dict:
         # INSERT into an existing table goes through /insert, which matches stored columns.
         raise PBError("E_BAD_REQUEST", fields=["existing_policy"])
     profile = get_db_profile(request, options.dialect)
-    selected = get_files(request).get(file_id)
+    files = get_files(request)
+    selected = files.get(file_id)
     config = get_config(request)
     scans = get_string_scans(request)
     reserved_result = oracle_reserved_provider(request, options.dialect)
@@ -35,8 +36,17 @@ def queue_load(file_id: str, options: LoadOptions, request: Request) -> dict:
         reserved_result=reserved_result,
     )
 
+    # The job holds the file and its own scan handle until it ends, so selecting another
+    # file (which releases this selection) or deleting the upload cannot pull them away.
+    scan_handle = scans.hold(file_id)
+    files.hold(file_id)
+
+    def release_holds() -> None:
+        scans.release(scan_handle)
+        files.release_hold(file_id)
+
     def prepare_load(cancel_event, progress):
-        lengths = scans.wait(file_id, cancel_event, progress)
+        lengths = scans.wait(scan_handle, cancel_event, progress)
         if lengths is None:
             return None
         prepared, prepared_rows, _warnings, _schema = build_models(
@@ -59,6 +69,7 @@ def queue_load(file_id: str, options: LoadOptions, request: Request) -> dict:
         existing_policy=options.existing_policy,
         confirm_table_name=options.confirm_table_name,
         prepare=prepare_load,
+        on_finish=release_holds,
     )
     return {**job, "warnings": reserved_warnings}
 
@@ -76,10 +87,12 @@ def check_insert_target(file_id: str, options: InsertOptions, request: Request) 
 def queue_insert(file_id: str, options: InsertOptions, request: Request) -> dict:
     """Queue INSERT into an existing table without DDL or a string-length scan."""
     profile = get_db_profile(request, options.dialect)
-    selected = get_files(request).get(file_id)
+    files = get_files(request)
+    selected = files.get(file_id)
     model, report, source_rows = inspect_insert_target(selected.path, profile, options.table_name, options.columns)
     if model is None:
         raise PBError("E_INSERT_NO_MATCHING_COLUMNS")
+    files.hold(file_id)
     job = get_jobs(request).submit(
         path=selected.path,
         tables=[model],
@@ -88,6 +101,7 @@ def queue_insert(file_id: str, options: InsertOptions, request: Request) -> dict
         batch_size=get_config(request).load.batch_size,
         existing_policy="insert_only",
         confirm_table_name=None,
+        on_finish=lambda: files.release_hold(file_id),
     )
     return {**job, "warnings": report["warnings"]}
 

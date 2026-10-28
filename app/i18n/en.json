@@ -216,6 +216,7 @@
   "error.E_JOB_NOT_FOUND": "The load job was not found.",
   "error.E_JOB_CONFLICT": "Another load job is already active for {table} or one of its child tables.",
   "error.E_STRING_SCAN_FAILED": "The full string-length scan failed.",
+  "error.E_FILE_IN_USE": "A load job is still reading this file. Delete it after the job finishes or is cancelled.",
   "error.E_STRING_SCAN_CANCELLED": "The string-length scan was cancelled or the file selection was released.",
   "error.E_LOCAL_INFILE_UNAVAILABLE": "LOAD DATA LOCAL INFILE is unavailable; use batch INSERTs.",
   "error.E_POSTGRES_NUL_CHARACTER": "PostgreSQL cannot store NUL characters in text or JSON values. Check {table}.{column}, batch {batch_index}, row {row_index} in {row_index_scope} scope. {committed_batches} batches and {committed_rows} rows remain committed.",

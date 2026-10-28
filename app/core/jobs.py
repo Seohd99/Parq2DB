@@ -705,6 +705,38 @@ class LoadJobManager:
         existing_policy: str,
         confirm_table_name: str | None,
         prepare: LoadPreparation | None = None,
+        on_finish: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        """Queue one load; `on_finish` runs once when the job ends or is refused here."""
+        try:
+            return self._submit(
+                path=path,
+                tables=tables,
+                profile=profile,
+                source_rows=source_rows,
+                batch_size=batch_size,
+                existing_policy=existing_policy,
+                confirm_table_name=confirm_table_name,
+                prepare=prepare,
+                on_finish=on_finish,
+            )
+        except BaseException:
+            if on_finish is not None:
+                on_finish()
+            raise
+
+    def _submit(
+        self,
+        *,
+        path: Path,
+        tables: Sequence[TableModel],
+        profile: DbProfile,
+        source_rows: int,
+        batch_size: int,
+        existing_policy: str,
+        confirm_table_name: str | None,
+        prepare: LoadPreparation | None,
+        on_finish: Callable[[], None] | None,
     ) -> dict[str, Any]:
         validate_load_request(tables, existing_policy, confirm_table_name)
         job_id = uuid.uuid4().hex
@@ -739,7 +771,8 @@ class LoadJobManager:
             for key in keys:
                 self._active_tables[key] = job_id
             self._executor.submit(
-                self._run,
+                self._run_then_finish,
+                on_finish,
                 job_id,
                 path,
                 tuple(tables),
@@ -799,6 +832,13 @@ class LoadJobManager:
         for key in job["table_keys"]:
             if self._active_tables.get(key) == job["job_id"]:
                 del self._active_tables[key]
+
+    def _run_then_finish(self, on_finish: Callable[[], None] | None, *args: Any) -> None:
+        try:
+            self._run(*args)
+        finally:
+            if on_finish is not None:
+                on_finish()
 
     def _run(
         self,
