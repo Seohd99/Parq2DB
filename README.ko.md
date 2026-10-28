@@ -351,7 +351,7 @@ uv는 `parq2db` 명령을 자동으로 제공합니다. pip로 만든 환경에�
 
 웹에서 로컬 파일이나 업로드 파일을 선택하면 전체 측정이 백그라운드에서 시작됩니다. 측정 상태는 `GET /api/files/{file_id}/length-scan`으로 확인할 수 있습니다. 완료 전 `full` DDL 요청은 표본 추정 DDL과 진행 상태를 즉시 돌려주고, 측정이 끝나면 화면에서 확정 DDL을 자동으로 다시 불러옵니다. 적재는 작업 안에서 확정 측정이 끝날 때까지 기다리며, 그 측정값으로 화면의 확정 DDL과 같은 테이블 모델을 만듭니다. CLI에서는 동기식으로 측정합니다.
 
-`full` 측정은 현재 파일의 최대값에 여유를 두지 않으므로, 다른 파일을 같은 테이블에 `append`할 때 더 긴 값이 들어오면 폭이 부족할 수 있습니다. 여러 파일을 이어 넣을 계획이면 `max` 또는 `lob`를 고려하세요. Oracle `max`는 `VARCHAR2(1000 CHAR)`를 기본 폭으로 쓰고 측정값이 1,000자를 넘거나 4,000바이트 한도를 넘으면 `CLOB`으로 올립니다. MySQL `max`는 측정값에 맞춰 `VARCHAR(16383)`, `TEXT`, `MEDIUMTEXT`, `LONGTEXT` 중 필요한 폭을 선택하며 테이블 행 크기 예산에 따라 추가 강등될 수 있습니다. PostgreSQL `max`와 `lob`는 길이 제한 없는 `TEXT`를 씁니다. Oracle `lob`는 `CLOB`, MySQL `lob`는 `LONGTEXT`입니다.
+`full` 측정은 현재 파일의 최대값에 여유를 두지 않으므로, 다른 파일을 같은 테이블에 `append`할 때 더 긴 값이 들어오면 폭이 부족할 수 있습니다. 여러 파일을 이어 넣을 계획이면 `max` 또는 `lob`를 고려하세요. Oracle `max`는 `VARCHAR2(1000 CHAR)`를 기본 폭으로 쓰고 측정값이 1,000자를 넘거나 4,000바이트 한도를 넘으면 `CLOB`으로 올립니다. MySQL `max`는 측정값에 맞춰 `VARCHAR(16383)`, `TEXT`, `MEDIUMTEXT`, `LONGTEXT` 중 필요한 폭을 선택하며 테이블 행 크기 예산에 따라 추가 강등될 수 있습니다. PostgreSQL `max`와 `lob`는 길이 제한 없는 `TEXT`를 씁니다. Oracle `lob`는 `CLOB`, MySQL `lob`는 `LONGTEXT`입니다. 가변 길이 binary의 `max`는 Oracle `RAW(2000)`, MySQL `VARBINARY(65535)`를 쓰고, 측정값이 더 길면 `BLOB` / `LONGBLOB`으로 올립니다. PostgreSQL은 항상 `BYTEA`입니다.
 
 ## 컬럼 선택
 

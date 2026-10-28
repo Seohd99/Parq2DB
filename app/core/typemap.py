@@ -282,6 +282,10 @@ def map_arrow_type(
             length = fixed_size
         elif string_strategy == "max":
             length = 2000 if dialect == "oracle" else 65_535
+            # Like strings, keep max at least as wide as the measurement so a longer
+            # value promotes the column to a LOB instead of failing at INSERT.
+            if string_length is not None:
+                length = max(length, math.ceil(string_length.bytes * length_margin))
         else:
             length = string_length.bytes if string_length else 255
         if string_strategy == "sample":

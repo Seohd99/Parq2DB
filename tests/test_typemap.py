@@ -99,6 +99,57 @@ def test_oracle_max_is_not_narrower_than_measured_sample_and_large_text_is_safe(
     )["sql_type"] == "TEXT"
 
 
+def test_binary_max_promotes_to_lob_only_when_measurement_exceeds_inline_limit():
+    def binary_max(data_type, dialect, measured_bytes=None):
+        measured = None if measured_bytes is None else StringLength(characters=measured_bytes, bytes=measured_bytes)
+        return map_arrow_type(
+            data_type, dialect, string_length=measured, string_strategy="max", length_margin=1.0,
+        )
+
+    # Without a measurement, or within the inline cap, max keeps its inline size and warnings.
+    assert binary_max(pa.binary(), "oracle")["sql_type"] == "RAW(2000)"
+    assert binary_max(pa.binary(), "oracle", 2000) == binary_max(pa.binary(), "oracle")
+    assert binary_max(pa.large_binary(), "oracle", 2001)["sql_type"] == "BLOB"
+    assert binary_max(pa.binary(), "mysql", 65_535)["sql_type"] == "VARBINARY(65535)"
+    assert binary_max(pa.binary(), "mysql", 65_536)["sql_type"] == "LONGBLOB"
+    assert binary_max(pa.binary(), "postgres", 5000)["sql_type"] == "BYTEA"
+    assert binary_max(pa.binary(), "oracle", 5000)["warnings"] == []
+
+    # A sampled measurement keeps its margin, as it does for strings.
+    assert map_arrow_type(
+        pa.binary(), "oracle", string_length=StringLength(bytes=1700), string_strategy="max",
+    )["sql_type"] == "BLOB"
+
+    # Fixed-size binary is sized by its declared width, not by max.
+    assert binary_max(pa.binary(16), "oracle", 16)["sql_type"] == "RAW(16)"
+    assert binary_max(pa.binary(2001), "oracle", 2001)["sql_type"] == "BLOB"
+    assert binary_max(pa.binary(16), "mysql", 16)["sql_type"] == "VARBINARY(16)"
+
+
+def test_binary_max_uses_full_scan_bytes_for_oracle_plan(tmp_path: Path):
+    from app.core.flatten import plan_tables
+
+    path = tmp_path / "long-binary.parquet"
+    pq.write_table(pa.table({"payload": pa.array([b"x" * 5000], type=pa.binary())}), path)
+    schema = pq.ParquetFile(path).schema_arrow
+    measured = measure_string_lengths(path, schema, strategy="max", length_scan="full")
+    assert measured["payload"].bytes == 5000
+
+    def oracle_type(strategy: str) -> str:
+        return plan_tables(
+            schema,
+            table_name="PB_TEST_BINARY",
+            dialect="oracle",
+            string_strategy=strategy,
+            lengths=measured,
+            length_scan="full",
+        )[0].columns[0].sql_type_oracle
+
+    assert oracle_type("max") == "BLOB"
+    assert oracle_type("sample") == "BLOB"
+    assert oracle_type("lob") == "BLOB"
+
+
 def test_sample_positions_cover_the_full_file_and_late_row_group(tmp_path: Path):
     positions = sample_row_positions(1000, 20)
     assert len(positions) == 20
