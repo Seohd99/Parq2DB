@@ -314,7 +314,7 @@ uv는 `parq2db` 명령을 자동으로 제공합니다. pip로 만든 환경에�
 
 기본 테이블명은 선택한 DB의 이름 규칙을 따르며, 대상 DB를 바꾸면 자동으로 갱신됩니다. 직접 수정한 이름은 다른 파일을 선택할 때까지 유지됩니다.
 
-주요 API는 `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/insert/check`, `POST /api/files/{file_id}/insert`, `GET /api/db/{dialect}/tables`, `POST /api/files/{file_id}/release`, `GET /api/jobs/{job_id}`입니다. 파일 핸들과 작업 상태는 프로세스 메모리에 있으므로 서버를 재시작하면 파일을 다시 선택해야 합니다. 로컬 경로로 선택한 파일은 release하면 핸들이 사라지며(업로드한 파일의 핸들은 삭제할 때까지 유지됩니다), 완료된 작업의 상태는 가장 최근 100개까지만 보관합니다. 선택을 release하거나 다른 파일을 골라도 이미 제출한 적재는 멈추지 않으며, 적재·INSERT 작업이 읽고 있는 업로드 파일은 삭제할 수 없습니다(`E_FILE_IN_USE`).
+주요 API는 `GET /api/status`, `GET /api/files/browse`, `POST /api/files/local`, `POST /api/files/upload`, `GET /api/files/{file_id}/inspect`, `GET /api/files/{file_id}/preview`, `GET /api/files/{file_id}/length-scan`, `POST /api/files/{file_id}/ddl`, `POST /api/files/{file_id}/load`, `POST /api/files/{file_id}/insert/check`, `POST /api/files/{file_id}/insert`, `GET /api/db/{dialect}/tables`, `POST /api/files/{file_id}/release`, `GET /api/jobs/{job_id}`입니다. 파일 핸들과 작업 상태는 프로세스 메모리에 있으므로 서버를 재시작하면 파일을 다시 선택해야 합니다. 로컬 경로로 선택한 파일은 release하면 핸들이 사라지며(업로드한 파일의 핸들은 삭제할 때까지 유지됩니다), 완료된 작업의 상태는 가장 최근 100개까지만 보관합니다. 선택을 release하거나 다른 파일을 골라도 이미 제출한 적재는 멈추지 않으며, 적재·INSERT 작업이 읽고 있는 업로드 파일은 삭제할 수 없습니다(`E_FILE_IN_USE`). Windows에서는 미리보기 같은 다른 요청이 파일을 열고 있는 동안 삭제하면 `E_FILE_BUSY`로 거절되며, 업로드는 그대로 선택 가능한 상태로 남으니 잠시 뒤 다시 시도하세요.
 
 ## 펼치기 모드
 

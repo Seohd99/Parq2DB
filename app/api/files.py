@@ -70,9 +70,13 @@ def delete_file(file_id: str, request: Request) -> dict:
         raise PBError("E_PATH_NOT_ALLOWED")
     # The registry settles a race with a job holding the file; only once the delete
     # has won is the selection's scan released, so a refused delete keeps it intact.
+    # The scan must stop before the unlink (an open reader blocks it on Windows), so
+    # a delete that wins but cannot remove the file starts the selection's scan again.
+    scans = get_string_scans(request)
     files.delete_upload(
         file_id,
-        before_unlink=lambda: get_string_scans(request).release(file_id, wait=True),
+        before_unlink=lambda: scans.release(file_id, wait=True),
+        on_unlink_failed=lambda: scans.start(file_id, selected.path),
     )
     return {"deleted": True}
 

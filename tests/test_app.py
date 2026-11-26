@@ -705,6 +705,44 @@ def test_cancelling_a_queued_load_frees_its_upload_while_workers_are_busy(tmp_pa
         c.delete(f"/api/files/{busy_id}")
 
 
+def test_delete_blocked_by_an_open_reader_keeps_the_upload_loadable(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    path = tmp_path / "busy-delete.parquet"
+    pq.write_table(pa.table({"comment": ["x"]}), path)
+    client, events, _scan_cancel_events, loaded_types = _held_load_client(tmp_path, monkeypatch)
+    events["finish_scan"].set()
+    real_unlink = Path.unlink
+    refused_paths = []
+
+    def sharing_violation_once(self, *args, **kwargs):
+        if self.parent.name == "uploads" and not refused_paths:
+            refused_paths.append(self)
+            # What Windows raises while another reader, such as a preview, has the file open.
+            raise PermissionError(13, "The process cannot access the file")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", sharing_violation_once)
+    with client as c:
+        file_id = _upload(c, path, "busy-delete.parquet")
+        _wait_scan_ready(c, file_id)
+
+        refused = c.delete(f"/api/files/{file_id}")
+        assert refused.status_code == 409
+        assert refused.json()["error"]["code"] == "E_FILE_BUSY"
+        assert c.app.state.files._deleting == set()
+        assert c.get(f"/api/files/{file_id}/inspect").status_code == 200
+        # The delete stopped the selection's scan before the unlink failed; it runs again.
+        _wait_scan_ready(c, file_id)
+        response = c.post(f"/api/files/{file_id}/load", json={"dialect": "mysql", "table_name": "PB_TEST_BUSY_DELETE"})
+        assert response.status_code == 200, response.text
+        assert _wait_job(c, response.json()["job_id"])["status"] == "succeeded"
+        assert loaded_types == ["VARCHAR(1)"]
+
+        assert c.delete(f"/api/files/{file_id}").status_code == 200
+        assert list((tmp_path / "uploads").iterdir()) == []
+
+
 def test_database_apis_reject_offline_profiles_with_409(tmp_path):
     cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
     with client_with(cfg) as c:

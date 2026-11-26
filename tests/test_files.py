@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -144,6 +145,36 @@ def test_upload_stream_saves_safe_name_and_delete_stays_in_upload_dir(tmp_path, 
         assert removed.status_code == 200
         assert removed.json() == {"deleted": True}
         assert list((tmp_path / "uploads").iterdir()) == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="only Windows refuses to delete an open file")
+def test_delete_of_an_open_upload_reports_busy_and_undoes_under_the_claim(tmp_path, parquet_path):
+    import pyarrow.parquet as pq
+
+    from app.core.files import FileRegistry
+
+    registry = FileRegistry(tmp_path / "uploads")
+    upload = registry.begin_upload("open.parquet", 10_000_000)
+    upload.write(parquet_path.read_bytes())
+    selected = upload.finish()
+    steps = []
+
+    def undo():
+        # The claim is still in force: a job cannot take the file while the delete undoes.
+        with pytest.raises(PBError) as refused:
+            registry.hold(selected.file_id)
+        steps.append(("undo", refused.value.code))
+
+    with pq.ParquetFile(selected.path):
+        with pytest.raises(PBError) as busy:
+            registry.delete_upload(
+                selected.file_id, before_unlink=lambda: steps.append("release"), on_unlink_failed=undo,
+            )
+    assert busy.value.code == "E_FILE_BUSY"
+    assert steps == ["release", ("undo", "E_FILE_NOT_FOUND")]
+    assert registry.get(selected.file_id) == selected
+    registry.delete_upload(selected.file_id)
+    assert not selected.path.exists()
 
 
 def test_upload_rejects_invalid_magic_and_removes_partial_file(tmp_path):

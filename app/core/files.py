@@ -145,12 +145,21 @@ class FileRegistry:
         """Open a safe temporary upload for a validated multipart file part."""
         return StreamingUpload(self, filename, max_bytes)
 
-    def delete_upload(self, file_id: str, *, before_unlink: Callable[[], None] | None = None) -> None:
+    def delete_upload(
+        self,
+        file_id: str,
+        *,
+        before_unlink: Callable[[], object] | None = None,
+        on_unlink_failed: Callable[[], object] | None = None,
+    ) -> None:
         """Delete an upload that no job holds.
 
         The delete claims the file under the hold lock, so a job that has not held it
         yet can no longer do so; ``before_unlink`` (such as stopping a scan that reads
-        the file) runs after the claim and before the file is removed.
+        the file) runs after the claim and before the file is removed. When the file is
+        not removed after all, ``on_unlink_failed`` undoes that step while the claim
+        still keeps other deletes and jobs out. Windows refuses to delete a file another
+        reader still has open, which is reported as E_FILE_BUSY.
         """
         selected = self.get(file_id)
         if selected.source != "upload":
@@ -176,9 +185,15 @@ class FileRegistry:
             if before_unlink is not None:
                 before_unlink()
             selected.path.unlink()
-        except BaseException:
-            with self._holds_lock:
-                self._deleting.discard(file_id)
+        except BaseException as exc:
+            try:
+                if on_unlink_failed is not None:
+                    on_unlink_failed()
+            finally:
+                with self._holds_lock:
+                    self._deleting.discard(file_id)
+            if isinstance(exc, PermissionError):
+                raise PBError("E_FILE_BUSY") from exc
             raise
         with self._holds_lock:
             self._files.pop(file_id, None)
