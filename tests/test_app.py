@@ -556,6 +556,155 @@ def test_upload_used_by_insert_job_cannot_be_deleted_until_job_ends(tmp_path, mo
         assert c.delete(f"/api/files/{file_id}").status_code == 200
 
 
+def _wait_scan_ready(c, file_id):
+    deadline = time.monotonic() + 3
+    scan = c.get(f"/api/files/{file_id}/length-scan").json()
+    while time.monotonic() < deadline and scan["status"] != "ready":
+        time.sleep(0.01)
+        scan = c.get(f"/api/files/{file_id}/length-scan").json()
+    assert scan["status"] == "ready", scan
+
+
+def _barrier(monkeypatch, owner, name):
+    """Pause `owner.name` at entry until `proceed` is set; `arrived` reports the pause."""
+    arrived = threading.Event()
+    proceed = threading.Event()
+    original = getattr(owner, name)
+
+    def paused(self, *args, **kwargs):
+        arrived.set()
+        assert proceed.wait(5)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(owner, name, paused)
+    return arrived, proceed
+
+
+def _post_in_thread(c, url, body):
+    result = {}
+
+    def send():
+        result["response"] = c.post(url, json=body)
+
+    thread = threading.Thread(target=send)
+    thread.start()
+    return thread, result
+
+
+def _insert_target_stub(monkeypatch):
+    from app.api import loads
+    from app.core.model import ColumnModel, TableModel
+
+    model = TableModel(name="PB_TEST_RACE", columns=(ColumnModel("comment", "comment", "COMMENT", None, "string"),))
+    monkeypatch.setattr(loads, "inspect_insert_target", lambda *_args: (model, {"warnings": []}, 1))
+
+
+@pytest.mark.parametrize("endpoint", ["load", "insert"])
+def test_delete_that_wins_the_race_refuses_the_later_job_without_leaking_holds(tmp_path, monkeypatch, endpoint):
+    from app.core.files import FileRegistry
+
+    path = tmp_path / "race-delete.parquet"
+    pq.write_table(pa.table({"comment": ["x"]}), path)
+    _insert_target_stub(monkeypatch)
+    client, events, _scan_cancel_events, loaded_types = _held_load_client(tmp_path, monkeypatch)
+    events["finish_scan"].set()
+    arrived, proceed = _barrier(monkeypatch, FileRegistry, "hold")
+    with client as c:
+        file_id = _upload(c, path, "race-delete.parquet")
+        thread, result = _post_in_thread(
+            c, f"/api/files/{file_id}/{endpoint}", {"dialect": "mysql", "table_name": "PB_TEST_RACE"},
+        )
+        try:
+            # The job request has passed its file lookup but holds nothing yet.
+            assert arrived.wait(5)
+            assert c.delete(f"/api/files/{file_id}").status_code == 200
+        finally:
+            proceed.set()
+            thread.join(5)
+        response = result["response"]
+        assert response.status_code == 404, response.text
+        assert response.json()["error"]["code"] == "E_FILE_NOT_FOUND"
+        assert c.app.state.files._holds == {}
+        assert c.app.state.string_scans._by_file == {}
+        assert c.app.state.jobs._jobs == {}
+        assert loaded_types == []
+        assert list((tmp_path / "uploads").iterdir()) == []
+
+
+def test_job_that_wins_the_race_keeps_the_upload_and_the_selection_scan(tmp_path, monkeypatch):
+    from app.core.string_scans import StringScanManager as Scans
+
+    path = tmp_path / "race-job.parquet"
+    pq.write_table(pa.table({"comment": ["x"]}), path)
+    client, events, scan_cancel_events, loaded_types = _held_load_client(tmp_path, monkeypatch)
+    events["finish_scan"].set()
+    arrived, proceed = _barrier(monkeypatch, Scans, "hold")
+    with client as c:
+        file_id = _upload(c, path, "race-job.parquet")
+        _wait_scan_ready(c, file_id)
+        thread, result = _post_in_thread(
+            c, f"/api/files/{file_id}/load", {"dialect": "mysql", "table_name": "PB_TEST_RACE"},
+        )
+        try:
+            # The job request holds the file and is about to take its scan handle.
+            assert arrived.wait(5)
+            refused = c.delete(f"/api/files/{file_id}")
+            assert refused.status_code == 409
+            assert refused.json()["error"]["code"] == "E_FILE_IN_USE"
+            assert c.get(f"/api/files/{file_id}/length-scan").json()["status"] == "ready"
+        finally:
+            proceed.set()
+            thread.join(5)
+        response = result["response"]
+        assert response.status_code == 200, response.text
+        assert _wait_job(c, response.json()["job_id"])["status"] == "succeeded"
+        assert loaded_types == ["VARCHAR(1)"]
+        assert not scan_cancel_events[0].is_set()
+        assert c.app.state.files._holds == {}
+        assert c.delete(f"/api/files/{file_id}").status_code == 200
+
+
+def test_cancelling_a_queued_load_frees_its_upload_while_workers_are_busy(tmp_path, monkeypatch):
+    from app.core import jobs
+
+    monkeypatch.setattr("app.main.LoadJobManager", lambda: jobs.LoadJobManager(max_workers=1))
+    busy = tmp_path / "busy.parquet"
+    pq.write_table(pa.table({"comment": ["x"]}), busy)
+    queued = tmp_path / "queued.parquet"
+    pq.write_table(pa.table({"comment": ["y"]}), queued)
+    client, events, scan_cancel_events, loaded_types = _held_load_client(tmp_path, monkeypatch)
+    events["finish_scan"].set()
+    events["finish_load"].clear()
+    with client as c:
+        busy_id = _upload(c, busy, "busy.parquet")
+        queued_id = _upload(c, queued, "queued.parquet")
+        _wait_scan_ready(c, queued_id)
+        busy_job = c.post(
+            f"/api/files/{busy_id}/load", json={"dialect": "mysql", "table_name": "PB_TEST_BUSY"},
+        ).json()["job_id"]
+        queued_job = c.post(
+            f"/api/files/{queued_id}/load", json={"dialect": "mysql", "table_name": "PB_TEST_QUEUED"},
+        ).json()["job_id"]
+        try:
+            assert c.get(f"/api/jobs/{queued_job}").json()["status"] == "queued"
+            assert c.delete(f"/api/files/{queued_id}").json()["error"]["code"] == "E_FILE_IN_USE"
+
+            # The only worker is still busy; cancelling must not wait for it.
+            assert c.post(f"/api/jobs/{queued_job}/cancel").json()["status"] == "cancelled"
+            assert c.app.state.files._holds == {busy_id: 1}
+            # The selection's own interest keeps the finished scan.
+            assert c.get(f"/api/files/{queued_id}/length-scan").json()["status"] == "ready"
+            assert c.delete(f"/api/files/{queued_id}").status_code == 200
+            assert c.get(f"/api/jobs/{busy_job}").json()["status"] == "running"
+        finally:
+            events["finish_load"].set()
+        assert _wait_job(c, busy_job)["status"] == "succeeded"
+        assert loaded_types == ["VARCHAR(1)"]
+        assert c.app.state.files._holds == {}
+        assert not any(event.is_set() for event in scan_cancel_events)
+        c.delete(f"/api/files/{busy_id}")
+
+
 def test_database_apis_reject_offline_profiles_with_409(tmp_path):
     cfg = load_config(tmp_path / "none.toml", tmp_path / "none.local.toml", env={})
     with client_with(cfg) as c:

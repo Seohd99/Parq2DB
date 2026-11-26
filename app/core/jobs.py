@@ -763,6 +763,9 @@ class LoadJobManager:
             "cancel_event": threading.Event(),
             "table_keys": keys,
             "confirm_table_name": confirm_table_name,
+            # Taken by whichever path ends the job first, so it runs exactly once.
+            "on_finish": on_finish,
+            "future": None,
         }
         with self._lock:
             if self._closed:
@@ -774,10 +777,9 @@ class LoadJobManager:
             self._jobs[job_id] = job
             for key in keys:
                 self._active_tables[key] = job_id
-            self._executor.submit(
+            job["future"] = self._executor.submit(
                 self._run_then_finish,
-                on_finish,
-                job_id,
+                job,
                 path,
                 tuple(tables),
                 profile,
@@ -814,6 +816,7 @@ class LoadJobManager:
             return self._snapshot_locked(job)
 
     def cancel(self, job_id: str) -> dict[str, Any]:
+        cancelled_before_start = False
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
@@ -824,7 +827,17 @@ class LoadJobManager:
                     job["status"] = "cancelled"
                     job["finished"] = time.monotonic()
                     self._release_locked(job)
-            return self._snapshot_locked(job)
+                    # Drop it from the executor queue; if a worker already took it,
+                    # _run sees the cancelled status and returns without reading.
+                    if job["future"] is not None:
+                        job["future"].cancel()
+                    cancelled_before_start = True
+            snapshot = self._snapshot_locked(job)
+        if cancelled_before_start:
+            # A queued job reads nothing, so return what it holds now instead of
+            # when a busy worker slot would eventually reach it.
+            self._finish(job)
+        return snapshot
 
     def _prune_finished_locked(self) -> None:
         """Keep only the most recent finished jobs; active jobs are never dropped."""
@@ -837,16 +850,22 @@ class LoadJobManager:
             if self._active_tables.get(key) == job["job_id"]:
                 del self._active_tables[key]
 
-    def _run_then_finish(self, on_finish: Callable[[], None] | None, *args: Any) -> None:
+    def _finish(self, job: dict[str, Any]) -> None:
+        with self._lock:
+            on_finish = job["on_finish"]
+            job["on_finish"] = None
+        if on_finish is not None:
+            on_finish()
+
+    def _run_then_finish(self, job: dict[str, Any], *args: Any) -> None:
         try:
-            self._run(*args)
+            self._run(job, *args)
         finally:
-            if on_finish is not None:
-                on_finish()
+            self._finish(job)
 
     def _run(
         self,
-        job_id: str,
+        job: dict[str, Any],
         path: Path,
         tables: Sequence[TableModel],
         profile: DbProfile,
@@ -856,8 +875,9 @@ class LoadJobManager:
         confirm_table_name: str | None,
         prepare: LoadPreparation | None,
     ) -> None:
+        # The job dict is passed in rather than looked up: pruning may already have
+        # dropped a cancelled job from self._jobs by the time a worker reaches it.
         with self._lock:
-            job = self._jobs[job_id]
             if job["status"] == "cancelled" or job["cancel_event"].is_set():
                 self._release_locked(job)
                 return

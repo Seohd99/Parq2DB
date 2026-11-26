@@ -68,12 +68,12 @@ def delete_file(file_id: str, request: Request) -> dict:
     selected = files.get(file_id)
     if selected.source != "upload":
         raise PBError("E_PATH_NOT_ALLOWED")
-    if files.in_use(file_id):
-        # Refuse before releasing the scan so the selection stays intact; delete_upload
-        # repeats the check under its lock for a job queued in between.
-        raise PBError("E_FILE_IN_USE")
-    get_string_scans(request).release(file_id, wait=True)
-    files.delete_upload(file_id)
+    # The registry settles a race with a job holding the file; only once the delete
+    # has won is the selection's scan released, so a refused delete keeps it intact.
+    files.delete_upload(
+        file_id,
+        before_unlink=lambda: get_string_scans(request).release(file_id, wait=True),
+    )
     return {"deleted": True}
 
 

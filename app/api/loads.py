@@ -25,21 +25,26 @@ def queue_load(file_id: str, options: LoadOptions, request: Request) -> dict:
     selected = files.get(file_id)
     config = get_config(request)
     scans = get_string_scans(request)
-    reserved_result = oracle_reserved_provider(request, options.dialect)
-    tables, source_rows, reserved_warnings, _schema = build_models(
-        selected,
-        options,
-        request,
-        lengths_override=StringLengthMeasurements(),
-        effective_length_scan="full",
-        config=config,
-        reserved_result=reserved_result,
-    )
-
     # The job holds the file and its own scan handle until it ends, so selecting another
     # file (which releases this selection) or deleting the upload cannot pull them away.
-    scan_handle = scans.hold(file_id)
+    # The file comes first: the registry orders that hold against a delete, so a delete
+    # that already won refuses this request before anything else is taken.
     files.hold(file_id)
+    try:
+        reserved_result = oracle_reserved_provider(request, options.dialect)
+        tables, source_rows, reserved_warnings, _schema = build_models(
+            selected,
+            options,
+            request,
+            lengths_override=StringLengthMeasurements(),
+            effective_length_scan="full",
+            config=config,
+            reserved_result=reserved_result,
+        )
+        scan_handle = scans.hold(file_id)
+    except BaseException:
+        files.release_hold(file_id)
+        raise
 
     def release_holds() -> None:
         scans.release(scan_handle)
@@ -89,10 +94,16 @@ def queue_insert(file_id: str, options: InsertOptions, request: Request) -> dict
     profile = get_db_profile(request, options.dialect)
     files = get_files(request)
     selected = files.get(file_id)
-    model, report, source_rows = inspect_insert_target(selected.path, profile, options.table_name, options.columns)
-    if model is None:
-        raise PBError("E_INSERT_NO_MATCHING_COLUMNS")
     files.hold(file_id)
+    try:
+        model, report, source_rows = inspect_insert_target(
+            selected.path, profile, options.table_name, options.columns,
+        )
+        if model is None:
+            raise PBError("E_INSERT_NO_MATCHING_COLUMNS")
+    except BaseException:
+        files.release_hold(file_id)
+        raise
     job = get_jobs(request).submit(
         path=selected.path,
         tables=[model],

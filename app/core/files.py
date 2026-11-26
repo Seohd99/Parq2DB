@@ -6,6 +6,7 @@ import ntpath
 import os
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,12 +81,14 @@ class FileRegistry:
         self.allowed_roots = allowed_roots
         self._files: dict[str, SelectedFile] = {}
         # Background jobs that read a file hold it so its upload cannot be deleted under them.
+        # One lock orders a hold against a delete's claim, so exactly one of them wins.
         self._holds: dict[str, int] = {}
+        self._deleting: set[str] = set()
         self._holds_lock = threading.Lock()
 
     def get(self, file_id: str) -> SelectedFile:
         selected = self._files.get(file_id)
-        if selected is None:
+        if selected is None or file_id in self._deleting:
             raise PBError("E_FILE_NOT_FOUND")
         if selected.source == "local":
             current = resolve_allowed_path(selected.path, self.allowed_roots)
@@ -121,8 +124,13 @@ class FileRegistry:
             del self._files[file_id]
 
     def hold(self, file_id: str) -> None:
-        """Mark a file as read by a background job until `release_hold()`."""
+        """Mark a registered file as read by a background job until `release_hold()`.
+
+        Fails with E_FILE_NOT_FOUND once a delete has claimed or removed the file.
+        """
         with self._holds_lock:
+            if file_id not in self._files or file_id in self._deleting:
+                raise PBError("E_FILE_NOT_FOUND")
             self._holds[file_id] = self._holds.get(file_id, 0) + 1
 
     def release_hold(self, file_id: str) -> None:
@@ -133,15 +141,17 @@ class FileRegistry:
             else:
                 self._holds.pop(file_id, None)
 
-    def in_use(self, file_id: str) -> bool:
-        with self._holds_lock:
-            return file_id in self._holds
-
     def begin_upload(self, filename: str | None, max_bytes: int) -> StreamingUpload:
         """Open a safe temporary upload for a validated multipart file part."""
         return StreamingUpload(self, filename, max_bytes)
 
-    def delete_upload(self, file_id: str) -> None:
+    def delete_upload(self, file_id: str, *, before_unlink: Callable[[], None] | None = None) -> None:
+        """Delete an upload that no job holds.
+
+        The delete claims the file under the hold lock, so a job that has not held it
+        yet can no longer do so; ``before_unlink`` (such as stopping a scan that reads
+        the file) runs after the claim and before the file is removed.
+        """
         selected = self.get(file_id)
         if selected.source != "upload":
             raise PBError("E_PATH_NOT_ALLOWED")
@@ -157,10 +167,22 @@ class FileRegistry:
         ):
             raise PBError("E_PATH_NOT_ALLOWED")
         with self._holds_lock:
+            if file_id in self._deleting:
+                raise PBError("E_FILE_NOT_FOUND")
             if file_id in self._holds:
                 raise PBError("E_FILE_IN_USE")
+            self._deleting.add(file_id)
+        try:
+            if before_unlink is not None:
+                before_unlink()
             selected.path.unlink()
-            del self._files[file_id]
+        except BaseException:
+            with self._holds_lock:
+                self._deleting.discard(file_id)
+            raise
+        with self._holds_lock:
+            self._files.pop(file_id, None)
+            self._deleting.discard(file_id)
 
 
 def resolve_allowed_path(raw_path: str | os.PathLike[str], allowed_roots: tuple[Path, ...]) -> Path:

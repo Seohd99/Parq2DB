@@ -480,6 +480,87 @@ def test_job_manager_prevents_overlapping_table_jobs(monkeypatch, tmp_path):
     assert finished == ["refused", "first"]
 
 
+def _blocked_manager(monkeypatch):
+    """A one-worker manager whose loads wait for `release`; `started` reports the first."""
+    from app.core import jobs
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def hold_job(**_kwargs):
+        started.set()
+        assert release.wait(5)
+        return {"tables": [], "committed_batches": 0, "committed_rows": 0}
+
+    monkeypatch.setattr(jobs, "execute_load", hold_job)
+    return LoadJobManager(max_workers=1), started, release
+
+
+def _submit_named(manager, tmp_path, name, finished):
+    table = TableModel(name=name, columns=(ColumnModel("x", "x", "X", None, "int"),))
+    return manager.submit(
+        path=tmp_path / "unused.parquet",
+        tables=[table],
+        profile=online_profile(),
+        source_rows=0,
+        batch_size=10,
+        existing_policy="fail",
+        confirm_table_name=None,
+        on_finish=lambda: finished.append(name),
+    )
+
+
+def test_cancelling_a_queued_job_returns_its_holds_once_without_waiting_for_a_worker(monkeypatch, tmp_path):
+    manager, started, release = _blocked_manager(monkeypatch)
+    finished = []
+    try:
+        running = _submit_named(manager, tmp_path, "PB_TEST_RUNNING", finished)
+        assert started.wait(5)
+        queued = _submit_named(manager, tmp_path, "PB_TEST_QUEUED", finished)
+        assert queued["status"] == "queued"
+
+        assert manager.cancel(queued["job_id"])["status"] == "cancelled"
+        assert finished == ["PB_TEST_QUEUED"]
+        assert manager._jobs[queued["job_id"]]["future"].cancelled()
+        assert manager.cancel(queued["job_id"])["status"] == "cancelled"
+        # A running job keeps what it holds until its reader ends, even when cancelled.
+        manager.cancel(running["job_id"])
+        assert finished == ["PB_TEST_QUEUED"]
+        # The cancelled job's table is free again.
+        _submit_named(manager, tmp_path, "PB_TEST_QUEUED", finished)
+    finally:
+        release.set()
+        manager.shutdown()
+    assert sorted(finished) == ["PB_TEST_QUEUED", "PB_TEST_QUEUED", "PB_TEST_RUNNING"]
+
+
+def test_cancelled_job_reached_by_a_worker_after_pruning_finishes_once(monkeypatch, tmp_path):
+    from app.core import jobs
+
+    manager, started, release = _blocked_manager(monkeypatch)
+    finished = []
+    try:
+        _submit_named(manager, tmp_path, "PB_TEST_RUNNING", finished)
+        assert started.wait(5)
+        queued = _submit_named(manager, tmp_path, "PB_TEST_TAKEN", finished)
+        future = manager._jobs[queued["job_id"]]["future"]
+        # As if a worker had already taken the job: the queue cannot drop it.
+        monkeypatch.setattr(future, "cancel", lambda: False)
+        manager.cancel(queued["job_id"])
+        assert finished == ["PB_TEST_TAKEN"]
+
+        # The next submission prunes the cancelled job's status before a worker reaches it.
+        monkeypatch.setattr(jobs, "MAX_FINISHED_JOBS", 0)
+        _submit_named(manager, tmp_path, "PB_TEST_AFTER", finished)
+        with pytest.raises(PBError):
+            manager.get(queued["job_id"])
+    finally:
+        release.set()
+        manager.shutdown()
+    assert future.exception() is None
+    assert sorted(finished) == ["PB_TEST_AFTER", "PB_TEST_RUNNING", "PB_TEST_TAKEN"]
+
+
 def test_cancel_during_preparation_reports_cancelled(monkeypatch, flat_parquet_path):
     connection = FakeConnection()
     tables = planned_table(flat_parquet_path)
