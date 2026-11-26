@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from app.core.duckdb_utils import iter_parquet_columns
 from app.core.errors import PBError, warning
 from app.core.dialects import SUPPORTED_DIALECTS
 from app.core.model import ColumnModel, StringLength, StringLengthMeasurements, TableModel
@@ -612,7 +613,7 @@ def measure_string_lengths_pyarrow_reference(
         field_types = {field.name: field.type for field in schema}
         measured: dict[str, StringLength] = {}
         scanned_rows = 0
-        for batch in parquet.iter_batches(batch_size=STRING_SAMPLE_BATCH_SIZE, columns=wanted_roots):
+        for batch in iter_parquet_columns(parquet, wanted_roots, batch_size=STRING_SAMPLE_BATCH_SIZE):
             _raise_if_scan_cancelled(cancel_event)
             for column_index, name in enumerate(batch.schema.names):
                 _record_arrow_lengths(batch.column(column_index), field_types[name], name, measured)
@@ -645,9 +646,10 @@ def _measure_sample_lengths_pyarrow(
             _raise_if_scan_cancelled(cancel_event)
             batch_offset = 0
             next_window = 0
-            for batch in parquet.iter_batches(
+            for batch in iter_parquet_columns(
+                parquet,
+                wanted_roots,
                 batch_size=STRING_SAMPLE_READ_BATCH_SIZE,
-                columns=wanted_roots,
                 row_groups=[group_index],
             ):
                 _raise_if_scan_cancelled(cancel_event)
@@ -801,9 +803,10 @@ def _measure_full_lengths_duckdb(
             with pq.ParquetFile(path) as parquet:
                 for group_index in group_indices:
                     _raise_if_scan_cancelled(cancel_event)
-                    for batch in parquet.iter_batches(
+                    for batch in iter_parquet_columns(
+                        parquet,
+                        nested_roots,
                         batch_size=STRING_SCAN_ARROW_BATCH_SIZE,
-                        columns=nested_roots,
                         row_groups=[group_index],
                     ):
                         _raise_if_scan_cancelled(cancel_event)

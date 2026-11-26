@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from app.core.model import StringLength
 from app.core.typemap import (
@@ -348,6 +349,34 @@ def test_full_length_scan_recurses_through_nested_string_leaves(tmp_path: Path):
     assert lengths["items[].label"].characters == 5
     assert lengths["attributes.key"].characters == 3
     assert lengths["attributes.value"].characters == 10
+
+
+@pytest.mark.parametrize("dotted_type", ["string", "struct"])
+def test_length_scans_measure_a_dotted_top_level_column_beside_a_colliding_struct(tmp_path: Path, dotted_type):
+    # PyArrow also returns struct `a`, trimmed to field `b`, for columns=["a.b"]. Struct `a`
+    # has no variable-length leaf, so no scan asked for it; measuring the trimmed struct
+    # against its full type used to fail the scan.
+    from app.core.typemap import measure_string_lengths_pyarrow_reference
+
+    numbers = pa.struct([("b", pa.int64()), ("c", pa.int64())])
+    if dotted_type == "string":
+        dotted = pa.array(["hello-world", "x"], type=pa.string())
+        leaf = "a.b"
+    else:
+        # A container root takes the Arrow path in the full scan as well.
+        dotted = pa.array([{"v": "hello-world"}, {"v": "x"}], type=pa.struct([("v", pa.string())]))
+        leaf = "a.b.v"
+    path = tmp_path / "dotted-lengths.parquet"
+    pq.write_table(pa.Table.from_arrays([
+        pa.array([{"b": 1, "c": 2}, {"b": 3, "c": 4}], type=numbers),
+        dotted,
+    ], names=["a", "a.b"]), path)
+    schema = pq.read_schema(path)
+
+    reference = measure_string_lengths_pyarrow_reference(path, schema)
+    assert dict(reference) == {leaf: StringLength(11, 11)}
+    assert dict(measure_string_lengths(path, schema, length_scan="sample")) == dict(reference)
+    assert dict(measure_string_lengths(path, schema, length_scan="full")) == dict(reference)
 
 
 def test_full_duckdb_scan_matches_reference_for_deep_maps_unicode_nulls_and_binary(tmp_path: Path):

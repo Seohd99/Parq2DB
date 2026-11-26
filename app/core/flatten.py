@@ -17,6 +17,7 @@ from app.core.duckdb_utils import (
     connect_utc,
     duckdb_compatible_batch,
     has_wide_decimal,
+    iter_parquet_columns,
     literal_path,
     source_aliases,
     validate_source_schema,
@@ -464,9 +465,10 @@ def _query_wide_decimal_preview(
     values: list[dict[str, Any]] = []
     try:
         with pq.ParquetFile(path) as parquet:
-            batches = parquet.iter_batches(
+            batches = iter_parquet_columns(
+                parquet,
+                read_columns or None,
                 batch_size=WIDE_DECIMAL_BATCH_SIZE,
-                columns=read_columns or None,
                 use_threads=False,
             )
             for source_batch in batches:
@@ -541,7 +543,9 @@ def sample_parent_key_duplicates(path: Path, column: str, *, sample_rows: int = 
             end = start + metadata.row_group(index).num_rows
             if any(start <= position < end for position in positions):
                 batch_offset = 0
-                for batch in parquet.iter_batches(batch_size=STRING_SAMPLE_BATCH_SIZE, columns=[column], row_groups=[index]):
+                for batch in iter_parquet_columns(
+                    parquet, [column], batch_size=STRING_SAMPLE_BATCH_SIZE, row_groups=[index],
+                ):
                     batch_end = batch_offset + batch.num_rows
                     for position in positions:
                         local = position - start

@@ -694,6 +694,128 @@ def test_none_mode_load_reads_and_inserts_only_selected_columns(monkeypatch, fla
     assert result["tables"][0]["matched"] is True
 
 
+def _dotted_name_parquet(path, *, dotted_type, wide):
+    """Write a file whose top-level `a.b` shares its dotted path with struct `a`'s field `b`."""
+    import pyarrow as pa
+
+    nested = pa.struct([("b", pa.struct([("v", pa.string())]))])
+    if dotted_type == "json":
+        dotted = pa.array([{"v": "top-1"}, {"v": "top-2"}], type=pa.struct([("v", pa.string())]))
+    else:
+        dotted = pa.array(["top-1", "top-2"], type=pa.string())
+    arrays = [
+        pa.array([{"b": {"v": "nested-1"}}, {"b": {"v": "nested-2"}}], type=nested),
+        dotted,
+        pa.array([1, 2], type=pa.int64()),
+    ]
+    names = ["a", "a.b", "id"]
+    if wide:
+        # An unselected 40-digit decimal sends every reader through the Arrow batch path.
+        arrays.append(pa.array([Decimal("1.00"), Decimal("2.00")], type=pa.decimal256(40, 2)))
+        names.append("w")
+    pq.write_table(pa.Table.from_arrays(arrays, names=names), path)
+    # Read the whole table and pick by exact name: the reference the load must match.
+    source = pq.read_table(path)
+    return source.schema, list(zip(source.column("a.b").to_pylist(), source.column("id").to_pylist()))
+
+
+def _load_rows(monkeypatch, path, table, *, existing_policy):
+    from app.core import jobs
+
+    connection = FakeConnection()
+    monkeypatch.setattr("app.core.jobs.connect", lambda _profile: connection)
+    monkeypatch.setattr(jobs, "table_exists", lambda *_args, **_kwargs: existing_policy == "insert_only")
+    monkeypatch.setattr(
+        jobs, "table_columns", lambda *_args, **_kwargs: {column.name for column in table.columns},
+    )
+    inserted = []
+
+    def capture(_connection, _table, rows):
+        inserted.extend(rows)
+        return len(rows)
+
+    monkeypatch.setattr(jobs.load_mysql, "insert_batch", capture)
+    result = execute_load(
+        path=path,
+        tables=[table],
+        profile=online_profile(),
+        source_rows=2,
+        batch_size=10,
+        existing_policy=existing_policy,
+        cancel_event=threading.Event(),
+        progress=lambda *_: None,
+    )
+    assert result["tables"][0]["matched"] is True
+    return inserted
+
+
+@pytest.mark.parametrize("wide", [False, True], ids=["duckdb", "wide-decimal"])
+@pytest.mark.parametrize("dotted_type", ["json", "string"])
+def test_selected_dotted_top_level_column_loads_its_own_values(monkeypatch, tmp_path, dotted_type, wide):
+    # PyArrow also returns struct `a` for columns=["a.b"]; the load must still bind top-level `a.b`.
+    from app.core.insert_target import match_columns, plan_insert_table, selected_matches
+
+    path = tmp_path / "dotted.parquet"
+    schema, expected = _dotted_name_parquet(path, dotted_type=dotted_type, wide=wide)
+
+    def decoded(rows):
+        return [(json.loads(value) if dotted_type == "json" else value, key) for value, key in rows]
+
+    (planned,) = plan_tables(
+        schema, table_name="PB_TEST_DOTS", dialect="mysql", string_strategy="max", columns=["a.b", "id"],
+    )
+    preview = query_table_preview(path, planned, dialect="mysql")["rows"]
+    assert [(row["A_B"], row["ID"]) for row in preview] == expected
+    assert decoded(_load_rows(monkeypatch, path, planned, existing_policy="fail")) == expected
+
+    stored = [
+        {"name": name, "data_type": data_type, "nullable": True, "has_default": False, "generated": False}
+        for name, data_type in (("a.b", "json" if dotted_type == "json" else "varchar(20)"), ("id", "bigint"))
+    ]
+    insert_table = plan_insert_table(
+        schema, table_name="PB_TEST_DOTS", dialect="mysql",
+        chosen=selected_matches(match_columns(schema, stored), None),
+    )
+    assert decoded(_load_rows(monkeypatch, path, insert_table, existing_policy="insert_only")) == expected
+
+
+def test_parent_key_sampling_reads_the_dotted_top_level_key(tmp_path):
+    import pyarrow as pa
+
+    from app.core.flatten import sample_parent_key_duplicates
+
+    path = tmp_path / "dotted-key.parquet"
+    # Struct `a` repeats b=7, while the selected top-level key `a.b` is unique.
+    pq.write_table(pa.Table.from_arrays([
+        pa.array([{"b": 7}, {"b": 7}], type=pa.struct([("b", pa.int64())])),
+        pa.array([1, 2], type=pa.int64()),
+    ], names=["a", "a.b"]), path)
+    assert sample_parent_key_duplicates(path, "a.b") is False
+
+
+def test_iter_parquet_columns_keeps_exact_columns_and_reads_every_column_only_for_none(tmp_path):
+    import pyarrow as pa
+
+    from app.core.duckdb_utils import iter_parquet_columns
+
+    path = tmp_path / "dotted-select.parquet"
+    pq.write_table(pa.Table.from_arrays([
+        pa.array([{"b": 1}], type=pa.struct([("b", pa.int64())])),
+        pa.array([2], type=pa.int64()),
+        pa.array([3], type=pa.int64()),
+    ], names=["a", "z", "a.b"]), path)
+    with pq.ParquetFile(path) as parquet:
+        def names(columns):
+            return [batch.schema.names for batch in iter_parquet_columns(parquet, columns)]
+
+        assert names(["a.b"]) == [["a.b"]]
+        assert names(["a.b", "z"]) == [["a.b", "z"]]
+        assert names(["a", "a.b"]) == [["a", "a.b"]]
+        assert names(None) == [["a", "z", "a.b"]]
+        # Unlike None, an empty selection reads no column, as iter_batches does.
+        assert all(batch.num_columns == 0 for batch in iter_parquet_columns(parquet, []))
+
+
 def test_insert_only_requires_existing_tables_and_never_creates(flat_parquet_path):
     tables = planned_table(flat_parquet_path)
     connection = FakeConnection()

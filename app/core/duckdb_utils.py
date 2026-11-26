@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from os import PathLike
 from typing import Any
 
@@ -33,6 +34,23 @@ def literal_path(path: str | PathLike[str]) -> str:
     each glob character in a one-character class makes it match only itself.
     """
     return "".join(f"[{char}]" if char in _GLOB_CHARACTERS else char for char in str(path))
+
+
+def iter_parquet_columns(parquet: Any, columns: Sequence[str] | None, **kwargs: Any) -> Iterator[pa.RecordBatch]:
+    """Yield ``ParquetFile.iter_batches`` batches holding exactly ``columns``, in that order.
+
+    PyArrow treats a column name as a dotted prefix of leaf paths, so asking for a
+    top-level ``a.b`` also returns struct ``a`` (trimmed to field ``b``) when one
+    exists. Callers map batch columns to the plan by position, so drop those extras.
+    The requested top-level columns themselves always come back whole. ``None`` reads
+    every column; an empty sequence reads none, as ``iter_batches`` does.
+    """
+    if columns is None:
+        yield from parquet.iter_batches(**kwargs)
+        return
+    wanted = list(columns)
+    for batch in parquet.iter_batches(columns=wanted, **kwargs):
+        yield batch if batch.schema.names == wanted else batch.select(wanted)
 
 
 def quote_identifier(value: str) -> str:

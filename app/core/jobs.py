@@ -30,6 +30,7 @@ from app.core.duckdb_utils import (
     connect_utc,
     duckdb_compatible_batch,
     has_wide_decimal,
+    iter_parquet_columns,
     literal_path,
 )
 from app.core.ddl_mysql import generate_mysql_ddl
@@ -230,9 +231,10 @@ def _expected_rows(path: Path, table: TableModel, source_rows: int) -> int:
                 if expected_sql is None:
                     return source_rows
                 expected_rows = 0
-                for source_batch in parquet.iter_batches(
+                for source_batch in iter_parquet_columns(
+                    parquet,
+                    read_columns or None,
                     batch_size=WIDE_DECIMAL_BATCH_SIZE,
-                    columns=read_columns or None,
                     use_threads=False,
                 ):
                     compatible_batch = duckdb_compatible_batch(source_batch)
@@ -404,10 +406,11 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
                 batch = None
                 batches = None
                 try:
-                    batches = parquet_file.iter_batches(
+                    batches = iter_parquet_columns(
+                        parquet_file,
+                        read_columns or None,
                         batch_size=batch_size,
                         row_groups=[row_group_index],
-                        columns=read_columns or None,
                         use_threads=False,
                     )
                     for batch in batches:
@@ -464,9 +467,10 @@ def _stream_batches(path: Path, table: TableModel, dialect: str, batch_size: int
         input_row_offset = 0
         try:
             with pq.ParquetFile(path) as parquet:
-                for source_batch in parquet.iter_batches(
+                for source_batch in iter_parquet_columns(
+                    parquet,
+                    read_columns or None,
                     batch_size=batch_size,
-                    columns=read_columns or None,
                     use_threads=False,
                 ):
                     compatible_batch = duckdb_compatible_batch(source_batch)
